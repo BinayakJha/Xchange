@@ -1,6 +1,7 @@
 import React from 'react';
 import { Tweet } from '../types';
 import { useApp } from '../context/AppContext';
+import { HighImpactIcon, MediumImpactIcon, LowImpactIcon, BullishIcon, BearishIcon, NeutralIcon } from './Icons';
 import './TweetCard.css';
 
 interface TweetCardProps {
@@ -26,11 +27,11 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet }) => {
   const getImpactIcon = () => {
     switch (tweet.impact) {
       case 'high':
-        return '🔥';
+        return <HighImpactIcon size={18} />;
       case 'medium':
-        return '⚡';
+        return <MediumImpactIcon size={18} />;
       default:
-        return '💡';
+        return <LowImpactIcon size={18} />;
     }
   };
 
@@ -103,7 +104,13 @@ const TweetCard: React.FC<TweetCardProps> = ({ tweet }) => {
                     >
                       <span className="impact-ticker">${ticker}</span>
                       <span className="impact-direction">
-                        {direction === 'bullish' ? '📈' : direction === 'bearish' ? '📉' : '➡️'}
+                        {direction === 'bullish' ? (
+                          <BullishIcon size={14} style={{ color: 'var(--accent-green)' }} />
+                        ) : direction === 'bearish' ? (
+                          <BearishIcon size={14} style={{ color: 'var(--accent-red)' }} />
+                        ) : (
+                          <NeutralIcon size={14} style={{ color: 'var(--text-secondary)' }} />
+                        )}
                         {direction.toUpperCase()}
                       </span>
                       {sentimentPercent !== null && (

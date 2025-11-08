@@ -199,6 +199,14 @@
   padding: 4px 10px;
   border-radius: 8px;
   background: rgba(29, 155, 240, 0.1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flow-card-type svg {
+  flex-shrink: 0;
+  display: inline-block;
 }
 
 .flow-card-value {

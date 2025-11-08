@@ -956,16 +956,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const watchlistTickers = watchlist.map((w) => w.ticker).filter(Boolean);
         if (watchlistTickers.length === 0) return;
 
-        // Get recent tweets (last 50) to analyze
-        const recentTweets = tweets.slice(0, 50).map((tweet) => ({
-          id: tweet.id,
-          username: tweet.username,
-          displayName: tweet.displayName,
-          content: tweet.content,
-          timestamp: tweet.timestamp,
-          likes: tweet.likes,
-          retweets: tweet.retweets,
-        }));
+        // Get recent tweets (last 30, reduced from 50 for token efficiency)
+        // Sort by engagement to prioritize impactful tweets
+        const recentTweets = [...tweets]
+          .sort((a, b) => ((b.likes || 0) + (b.retweets || 0)) - ((a.likes || 0) + (a.retweets || 0)))
+          .slice(0, 30)
+          .map((tweet) => ({
+            id: tweet.id,
+            username: tweet.username,
+            content: tweet.content, // Removed displayName, timestamp for token savings
+            likes: tweet.likes,
+            retweets: tweet.retweets,
+          }));
 
         console.log('[AI Analysis] Analyzing', recentTweets.length, 'tweets with Grok AI');
 
@@ -1053,22 +1055,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       lastMarketAnalysisRef.current = now;
 
       try {
-        // Reduce to 25 tweets to avoid resource exhaustion
-        const trimmedTweets = tweets.slice(0, 25).map((tweet) => ({
-          id: tweet.id,
-          username: tweet.username,
-          displayName: tweet.displayName,
-          content: tweet.content,
-          impact: tweet.impact,
-          likes: tweet.likes || 0,
-          retweets: tweet.retweets || 0,
-          timestamp: tweet.timestamp instanceof Date 
-            ? tweet.timestamp.toISOString() 
-            : typeof tweet.timestamp === 'string' 
-            ? tweet.timestamp 
-            : new Date().toISOString(),
-          mentionedStocks: tweet.mentionedStocks || [],
-        }));
+        // Optimize: Sort by engagement, take top 20, remove unnecessary fields
+        const trimmedTweets = [...tweets]
+          .sort((a, b) => ((b.likes || 0) + (b.retweets || 0)) - ((a.likes || 0) + (a.retweets || 0)))
+          .slice(0, 20) // Reduced from 25 to 20 for token efficiency
+          .map((tweet) => ({
+            id: tweet.id,
+            username: tweet.username,
+            content: tweet.content, // Removed displayName, timestamp for token savings
+            impact: tweet.impact,
+            likes: tweet.likes || 0,
+            retweets: tweet.retweets || 0,
+            mentionedStocks: (tweet.mentionedStocks || []).slice(0, 3), // Limit to 3 tickers
+          }));
 
         if (trimmedTweets.length === 0) {
           console.log('[Market Sentiment] Trimmed tweets list is empty, skipping analysis');

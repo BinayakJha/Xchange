@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { UnusualFlow } from '../types';
+import { BullishIcon, BearishIcon } from './Icons';
 import './UnusualFlowFeed.css';
 
 interface FlowAnalysis {
@@ -67,9 +68,9 @@ const UnusualFlowFeed: React.FC = () => {
   const getFlowTypeIcon = (type: 'call' | 'put' | 'volume') => {
     switch (type) {
       case 'call':
-        return '📈';
+        return <BullishIcon size={16} style={{ color: getFlowTypeColor(type) }} />;
       case 'put':
-        return '📉';
+        return <BearishIcon size={16} style={{ color: getFlowTypeColor(type) }} />;
       default:
         return '📊';
     }
@@ -84,7 +85,7 @@ const UnusualFlowFeed: React.FC = () => {
 
     try {
       const { analyzeFlowImage } = await import('../services/grokApi');
-      const imageAnalysis = await analyzeFlowImage(flow.imageUrl);
+      const imageAnalysis = await analyzeFlowImage(flow.imageUrl, flow.ticker);
       
       // Map image analysis to FlowAnalysis format
       const analysis: FlowAnalysis = {
@@ -310,7 +311,7 @@ interface FlowCardProps {
   formatValue: (value: number) => string;
   formatTime: (date: Date) => string;
   getFlowTypeColor: (type: 'call' | 'put' | 'volume') => string;
-  getFlowTypeIcon: (type: 'call' | 'put' | 'volume') => string;
+  getFlowTypeIcon: (type: 'call' | 'put' | 'volume') => React.ReactNode;
   isSelected?: boolean;
   onSelect?: () => void;
 }

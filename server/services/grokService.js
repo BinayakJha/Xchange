@@ -62,7 +62,7 @@ Return ONLY valid JSON, no markdown formatting.`;
     model: 'grok-2-1212',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.7,
-    max_tokens: 3000,
+    max_tokens: 2000, // Reduced from 3000 for token efficiency
     response_format: { type: 'json_object' },
   };
 
@@ -239,8 +239,8 @@ export async function analyzeTweetImpact(tweets = [], watchlistTickers = []) {
     return [];
   }
 
-  // Process in batches of 20 tweets to stay within token limits
-  const batchSize = 20;
+  // Process in batches of 15 tweets (reduced from 20 for token efficiency)
+  const batchSize = 15;
   const batches = [];
   for (let i = 0; i < tweets.length; i += batchSize) {
     batches.push(tweets.slice(i, i + batchSize));
@@ -248,57 +248,45 @@ export async function analyzeTweetImpact(tweets = [], watchlistTickers = []) {
 
   const allResults = [];
 
+  // Helper to truncate tweet content intelligently
+  const truncateContent = (content, maxLen = 200) => {
+    if (!content || content.length <= maxLen) return content;
+    // Try to truncate at word boundary
+    const truncated = content.substring(0, maxLen);
+    const lastSpace = truncated.lastIndexOf(' ');
+    return lastSpace > maxLen * 0.8 ? truncated.substring(0, lastSpace) + '...' : truncated + '...';
+  };
+
   for (const batch of batches) {
-    // Sanitize tweet data to prevent JSON issues
+    // Optimize tweet data: minimal fields, truncated content
     const tweetData = batch.map((tweet) => ({
-      id: String(tweet.id || '').substring(0, 100), // Limit ID length
-      username: String(tweet.username || '').substring(0, 50),
-      displayName: String(tweet.displayName || tweet.username || '').substring(0, 100),
-      content: String(tweet.content || '').substring(0, 500), // Limit content length to prevent token issues
-      timestamp: tweet.timestamp || new Date().toISOString(),
-      likes: Math.max(0, Math.min(Number(tweet.likes) || 0, 1000000)), // Sanitize numbers
-      retweets: Math.max(0, Math.min(Number(tweet.retweets) || 0, 1000000)),
+      i: String(tweet.id || '').substring(0, 50), // Shortened field name
+      u: String(tweet.username || '').substring(0, 30), // Shortened field name
+      t: truncateContent(String(tweet.content || ''), 200), // Truncated to 200 chars
+      l: Math.min(Number(tweet.likes) || 0, 999999), // Capped
+      r: Math.min(Number(tweet.retweets) || 0, 999999), // Capped
     }));
 
-    const prompt = `You are Grok AI acting as a financial market analyst. Analyze each tweet below and determine:
+    const prompt = `Analyze tweets for stock impact. Watchlist: ${watchlistTickers.join(',') || 'none'}
 
-1. Which specific stocks/cryptocurrencies (tickers) are impacted by this tweet
-2. The sentiment direction (bullish, bearish, or neutral) for each impacted ticker
-3. Whether the tweet impacts overall market sentiment (MARKET)
-4. The confidence level of your analysis
+Tweets: ${JSON.stringify(tweetData)}
 
-Tweets to analyze (JSON array): ${JSON.stringify(tweetData)}
-
-User's watchlist tickers: ${JSON.stringify(watchlistTickers)}
-
-For EACH tweet, return:
-- impactedTickers: Array of ticker symbols (e.g., ["AAPL", "TSLA", "MARKET"]) that this tweet affects
-- sentimentPerTicker: Object mapping each ticker to its sentiment direction (e.g., {"AAPL": "bullish", "MARKET": "bearish"})
-- overallMarketImpact: "bullish" | "bearish" | "neutral" | "none" - whether this impacts overall market
-- reasoning: Brief explanation (max 100 chars) for why each ticker is impacted
-
-Return ONLY valid JSON with this structure:
+For each tweet (use "i" as tweetId), return:
 {
   "tweetAnalyses": [
     {
-      "tweetId": "id from provided tweets",
+      "tweetId": "i value",
       "impactedTickers": ["AAPL", "MARKET"],
-      "sentimentPerTicker": {
-        "AAPL": "bullish",
-        "MARKET": "neutral"
-      },
-      "overallMarketImpact": "bullish" | "bearish" | "neutral" | "none",
-      "reasoning": "Brief explanation"
+      "sentimentPerTicker": {"AAPL": "bullish", "MARKET": "neutral"},
+      "overallMarketImpact": "bullish|bearish|neutral|none"
     }
   ]
 }
 
 Rules:
-- Only include tickers that are EXPLICITLY mentioned or CLEARLY impacted by the tweet content
-- Do NOT tag tweets with tickers that are unrelated (e.g., don't tag a mayoral election tweet with stock tickers)
-- For political/news tweets that affect markets indirectly, use "MARKET" ticker
-- Be conservative - only tag if there's a clear connection
-- Sentiment should be based on the tweet's actual content and tone, not assumptions`;
+- Only tag tickers EXPLICITLY mentioned or CLEARLY impacted
+- Use "MARKET" for general market news
+- Be conservative - only tag clear connections`;
 
     const headers = {
       Authorization: `Bearer ${GROK_API_KEY}`,
@@ -418,7 +406,16 @@ Rules:
       }
 
       if (Array.isArray(parsed.tweetAnalyses)) {
-        allResults.push(...parsed.tweetAnalyses);
+        // Map back from shortened field names if needed
+        const mappedResults = parsed.tweetAnalyses.map((analysis) => {
+          // If tweetId is using short format, find original ID from batch
+          const originalTweet = batch.find(t => String(t.id).substring(0, 50) === analysis.tweetId || t.id === analysis.tweetId);
+          return {
+            ...analysis,
+            tweetId: originalTweet?.id || analysis.tweetId,
+          };
+        });
+        allResults.push(...mappedResults);
       } else {
         console.warn('Parsed result does not contain tweetAnalyses array:', Object.keys(parsed));
       }
@@ -454,117 +451,65 @@ export async function analyzeMarketFromTweets(tweets = [], context = {}) {
     };
   }
 
-  // Trim to top 40 tweets to stay within token limits
-  const trimmedTweets = tweets.slice(0, 40).map((tweet) => ({
-    id: tweet.id,
-    username: tweet.username,
-    displayName: tweet.displayName,
-    content: tweet.content,
-    impact: tweet.impact,
-    likes: tweet.likes,
-    retweets: tweet.retweets,
-    timestamp: tweet.timestamp,
-    mentionedStocks: tweet.mentionedStocks,
+  // Optimize: Reduce to top 20 most impactful tweets, truncate content
+  const truncateContent = (content, maxLen = 180) => {
+    if (!content || content.length <= maxLen) return content;
+    const truncated = content.substring(0, maxLen);
+    const lastSpace = truncated.lastIndexOf(' ');
+    return lastSpace > maxLen * 0.8 ? truncated.substring(0, lastSpace) + '...' : truncated + '...';
+  };
+
+  // Sort by engagement and take top 20
+  const sortedTweets = [...tweets]
+    .sort((a, b) => ((b.likes || 0) + (b.retweets || 0)) - ((a.likes || 0) + (a.retweets || 0)))
+    .slice(0, 20);
+
+  const trimmedTweets = sortedTweets.map((tweet) => ({
+    i: String(tweet.id || '').substring(0, 50), // Shortened field
+    u: String(tweet.username || '').substring(0, 25), // Shortened
+    t: truncateContent(String(tweet.content || ''), 180), // Truncated to 180 chars
+    m: Array.isArray(tweet.mentionedStocks) ? tweet.mentionedStocks.slice(0, 3) : [], // Max 3 tickers
+    e: Math.min((tweet.likes || 0) + (tweet.retweets || 0), 999999), // Engagement only
   }));
 
-  const watchlistTickers = Array.isArray(context.watchlist) ? context.watchlist : [];
+  const watchlistTickers = Array.isArray(context.watchlist) ? context.watchlist.map(w => typeof w === 'string' ? w : w.ticker).filter(Boolean) : [];
   const openPositions = Array.isArray(context.positions)
     ? context.positions.map((pos) => ({
-        ticker: pos.ticker,
-        type: pos.type || 'stock',
-        quantity: pos.quantity,
-        entryPrice: pos.entryPrice,
-        currentPrice: pos.currentPrice,
+        t: pos.ticker, // Shortened
+        q: pos.quantity, // Shortened
+        p: pos.currentPrice, // Shortened
       }))
     : [];
 
-  const uniqueAccounts = Array.from(
-    new Set(trimmedTweets.map((tweet) => tweet.username))
-  );
+  const prompt = `Market analysis from tweets. Watchlist: ${watchlistTickers.join(',') || 'none'}. Positions: ${openPositions.length || 0}
 
-  const prompt = `You are Grok AI acting as an institutional market strategist. You are given REAL tweets from the last 24 hours (JSON provided below) that are already curated from market-moving X/Twitter accounts.
+Tweets: ${JSON.stringify(trimmedTweets)}
 
-Tweets JSON (array of objects): ${JSON.stringify(trimmedTweets)}
-
-Additional context:
-- Watchlist tickers the user cares about: ${JSON.stringify(watchlistTickers)}
-- Current paper positions: ${JSON.stringify(openPositions)}
-
-Tasks:
-1. Determine the overall market sentiment (bullish, bearish, neutral) based ONLY on these tweets.
-2. Provide percentages for bullish, bearish, and neutral that sum to 100.
-3. Identify 3-5 key drivers (short phrases) describing what is moving the market.
-4. Select 3-5 of the most impactful tweets from the list and explain how each influences sentiment. Reference the original tweet by its "id".
-5. Generate up to 4 stock trade suggestions (buy/sell/hold) focused on the watchlist tickers or other highly impacted tickers mentioned in the tweets.
-6. Generate up to 3 option trade ideas (calls/puts or spreads) with strike, expiration (YYYY-MM-DD), and rationale.
-7. Use the user's current positions to avoid duplicate trades (e.g., do not recommend buying a stock that is already held unless adding makes sense).
-
-Return ONLY valid JSON with this structure:
+Return JSON:
 {
-  "sentiment": {
-    "overall": "bullish" | "bearish" | "neutral",
-    "bullish": 0-100,
-    "bearish": 0-100,
-    "neutral": 0-100
-  },
-  "summary": "one paragraph summary (max 280 characters)",
-  "keyDrivers": ["driver 1", "driver 2", "driver 3"],
-  "sourceAccounts": ["username1", "username2"],
-  "topInsights": [
-    {
-      "tweetId": "id from provided tweets",
-      "username": "tweet author",
-      "direction": "bullish" | "bearish" | "neutral",
-      "summary": "short explanation referencing the tweet (max 140 chars)"
-    }
-  ],
-  "stockSuggestions": [
-    {
-      "id": "suggestion identifier",
-      "ticker": "AAPL",
-      "action": "buy" | "sell" | "hold",
-      "timeframe": "intraday" | "swing" | "long_term",
-      "confidence": 0-100,
-      "reason": "brief rationale referencing tweets or sentiment",
-      "supportingTweetIds": ["tweetId1", "tweetId2"]
-    }
-  ],
-  "optionSuggestions": [
-    {
-      "id": "option-suggestion identifier",
-      "ticker": "TSLA",
-      "action": "buy" | "sell",
-      "strategy": "long_call" | "long_put" | "call_spread" | "put_spread" | "straddle" | "strangle",
-      "optionType": "call" | "put",
-      "strike": number,
-      "expiration": "YYYY-MM-DD",
-      "confidence": 0-100,
-      "reason": "brief rationale",
-      "targetPrice": number,
-      "premiumEstimate": number,
-      "supportingTweetIds": ["tweetId1"]
-    }
-  ]
+  "sentiment": {"overall": "bullish|bearish|neutral", "bullish": 0-100, "bearish": 0-100, "neutral": 0-100},
+  "summary": "max 200 chars",
+  "keyDrivers": ["phrase1", "phrase2", "phrase3"],
+  "sourceAccounts": ["u1", "u2"],
+  "topInsights": [{"tweetId": "i value", "username": "u value", "direction": "bullish|bearish|neutral", "summary": "max 100 chars"}],
+  "stockSuggestions": [{"id": "s1", "ticker": "AAPL", "action": "buy|sell|hold", "timeframe": "intraday|swing|long_term", "confidence": 0-100, "reason": "brief", "supportingTweetIds": ["i1"]}],
+  "optionSuggestions": [{"id": "o1", "ticker": "TSLA", "action": "buy|sell", "strategy": "long_call|long_put|call_spread|put_spread", "optionType": "call|put", "strike": num, "expiration": "YYYY-MM-DD", "confidence": 0-100, "reason": "brief", "targetPrice": num, "premiumEstimate": num, "supportingTweetIds": ["i1"]}]
 }
 
-Rules:
-- Base all conclusions strictly on the provided tweets.
-- If data is mixed, the overall sentiment can be neutral, but percentages must still add up to 100.
-- Option strikes should be near current prices mentioned; make reasonable assumptions if prices not provided.
-- Keep text concise. No markdown.`;
+Use "i" as tweetId. Base on tweets only. Keep text concise.`;
 
   const headers = {
     Authorization: `Bearer ${GROK_API_KEY}`,
     'Content-Type': 'application/json',
   };
 
-  const data = {
-    model: 'grok-2-1212',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.6,
-    max_tokens: 2200,
-    response_format: { type: 'json_object' },
-  };
+    const data = {
+      model: 'grok-2-1212',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.5, // Slightly lower for more consistent output
+      max_tokens: 1800, // Reduced from 2200
+      response_format: { type: 'json_object' },
+    };
 
   try {
     const response = await fetch(API_URL, {
@@ -579,7 +524,45 @@ Rules:
 
     const result = await response.json();
     const content = result.choices[0].message.content;
-    const parsed = JSON.parse(content);
+    let parsed = JSON.parse(content);
+
+    // Map back from shortened field names
+    if (parsed.topInsights && Array.isArray(parsed.topInsights)) {
+      parsed.topInsights = parsed.topInsights.map((insight) => {
+        const originalTweet = sortedTweets.find(t => String(t.id).substring(0, 50) === insight.tweetId || t.id === insight.tweetId);
+        return {
+          ...insight,
+          tweetId: originalTweet?.id || insight.tweetId,
+          username: originalTweet?.username || insight.username,
+        };
+      });
+    }
+    if (parsed.stockSuggestions && Array.isArray(parsed.stockSuggestions)) {
+      parsed.stockSuggestions = parsed.stockSuggestions.map((suggestion) => {
+        if (suggestion.supportingTweetIds) {
+          suggestion.supportingTweetIds = suggestion.supportingTweetIds.map((tid) => {
+            const originalTweet = sortedTweets.find(t => String(t.id).substring(0, 50) === tid || t.id === tid);
+            return originalTweet?.id || tid;
+          });
+        }
+        return suggestion;
+      });
+    }
+    if (parsed.optionSuggestions && Array.isArray(parsed.optionSuggestions)) {
+      parsed.optionSuggestions = parsed.optionSuggestions.map((suggestion) => {
+        if (suggestion.supportingTweetIds) {
+          suggestion.supportingTweetIds = suggestion.supportingTweetIds.map((tid) => {
+            const originalTweet = sortedTweets.find(t => String(t.id).substring(0, 50) === tid || t.id === tid);
+            return originalTweet?.id || tid;
+          });
+        }
+        return suggestion;
+      });
+    }
+
+    const uniqueAccounts = Array.from(
+      new Set(sortedTweets.map((tweet) => tweet.username))
+    );
 
     const sanitizePercent = (value, fallback) => {
       const num = Number(value);
@@ -716,56 +699,35 @@ export async function getTweetsFromUsers(stockInput, usernames = [], count = 10)
     ? 'general market-moving tweets and financial insights'
     : `about stock "${stockInput}" OR general market-moving tweets`;
 
-  const prompt = `You have access to X/Twitter data. Extract ${count} REAL tweets ${stockContext} ${usersList} on X/Twitter from the LAST 24 HOURS (including today). 
+  const prompt = `Extract ${count} REAL tweets ${stockContext} ${usersList} from last 24h.
 
-IMPORTANT: These must be ACTUAL tweets that currently exist on X/Twitter. Do NOT make up or generate fake tweets.
-
-PRIORITY ACCOUNTS TO INCLUDE:
-- Market-moving individuals: elonmusk, realDonaldTrump, DeItaone, and other high-profile accounts that impact markets
-- Real-time news sources: Bloomberg, CNBC, Reuters, WSJ, MarketWatch, YahooFinance
-- Financial institutions: FederalReserve, major banks
-- Well-known finance personalities: JimCramer, DeItaone, etc.
-- CRITICAL: Always include ALL tweets from DeItaone (@DeItaone) from the past 24 hours, regardless of whether they mention "${stockInput}" - this account provides important market insights
+Priority: elonmusk, realDonaldTrump, DeItaone, Bloomberg, CNBC, Reuters, WSJ, MarketWatch, FederalReserve, JimCramer. Include ALL DeItaone tweets.
 
 Return JSON:
 {
   "tweets": [
     {
-      "content": "exact tweet text as it appears on X/Twitter",
-      "username": "actual_twitter_username (without @)",
-      "displayName": "Actual Display Name from their profile",
+      "content": "exact tweet text",
+      "username": "username_no_@",
+      "displayName": "Display Name",
       "verified": true/false,
-      "impact": "high" | "medium" | "low",
-      "engagement": actual_likes_plus_retweets,
-      "likes": actual_likes_count,
-      "retweets": actual_retweets_count,
-      "timestamp": "ISO 8601 format timestamp (YYYY-MM-DDTHH:mm:ssZ) when tweet was posted",
-      "relevance": "direct" | "market_impact" | "news"
+      "impact": "high|medium|low",
+      "engagement": likes+retweets,
+      "likes": num,
+      "retweets": num,
+      "timestamp": "ISO8601",
+      "relevance": "direct|market_impact|news"
     }
   ]
 }
 
-Requirements:
-- Return ONLY REAL tweets that exist on X/Twitter from the last 24 hours
-- Include tweets from today only (within the last 24 hours)
-- Include tweets that:
-  1. Directly mention "${stockInput}" OR
-  2. Are from market-moving accounts (elonmusk, Bloomberg, etc.) that impact overall markets OR
-  3. Are breaking news from Bloomberg, CNBC, Reuters that affect markets
-- Use exact tweet content word-for-word as posted
-- Use real usernames (without @ symbol)
-- Use real display names from their profiles
-- Include actual engagement numbers (likes, retweets)
-- Prioritize tweets from verified accounts
-- Include tweets with high engagement (1000+ likes/retweets)
-- Mix of bullish, bearish, and neutral perspectives
-- Focus on tweets from financial analysts, traders, market influencers, and news sources
-- Include timestamp in ISO 8601 format (e.g., "2024-01-15T14:30:00Z")
-- Set "relevance" to "direct" if tweet mentions "${stockInput}", "market_impact" for market-moving accounts, "news" for news sources
-
-DO NOT generate or make up tweets. Only return tweets that actually exist on X/Twitter from the last 24 hours.
-
-Return ONLY valid JSON.`;
+Rules:
+- Only REAL tweets from last 24h
+- Include: mentions "${stockInput}" OR market-moving accounts OR breaking news
+- High engagement preferred (1000+)
+- Mix bullish/bearish/neutral
+- relevance: "direct" if mentions "${stockInput}", "market_impact" for influencers, "news" for news sources
+- Return ONLY valid JSON.`;
 
   const headers = {
     Authorization: `Bearer ${GROK_API_KEY}`,
@@ -776,7 +738,7 @@ Return ONLY valid JSON.`;
     model: 'grok-2-1212',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.7,
-    max_tokens: 3000,
+    max_tokens: 2000, // Reduced from 3000 for token efficiency
     response_format: { type: 'json_object' },
   };
 
@@ -807,57 +769,35 @@ export async function getRelevantTweets(stockInput, count = 10) {
     throw new Error('GROK_API_KEY is not configured');
   }
 
-  const prompt = `You have access to X/Twitter data. Extract ${count} REAL tweets about stock "${stockInput}" OR general market-moving tweets from influential accounts on X/Twitter from the LAST 24 HOURS (including today). 
+  const prompt = `Extract ${count} REAL tweets about "${stockInput}" OR market-moving tweets from last 24h.
 
-IMPORTANT: These must be ACTUAL tweets that currently exist on X/Twitter. Do NOT make up or generate fake tweets.
-
-PRIORITY ACCOUNTS TO INCLUDE:
-- Market-moving individuals: elonmusk, realDonaldTrump, DeItaone, and other high-profile accounts that impact markets
-- Real-time news sources: Bloomberg, CNBC, Reuters, WSJ, MarketWatch, YahooFinance
-- Financial institutions: FederalReserve, major banks
-- Well-known finance personalities: JimCramer, DeItaone, etc.
-- Stock-specific analysts and traders who tweet about "${stockInput}"
-- CRITICAL: Always include ALL tweets from DeItaone (@DeItaone) from the past 24 hours, regardless of whether they mention "${stockInput}" - this account provides important market insights
+Priority: elonmusk, realDonaldTrump, DeItaone, Bloomberg, CNBC, Reuters, WSJ, MarketWatch, FederalReserve, JimCramer. Include ALL DeItaone tweets.
 
 Return JSON:
 {
   "tweets": [
     {
-      "content": "exact tweet text as it appears on X/Twitter",
-      "username": "actual_twitter_username (without @)",
-      "displayName": "Actual Display Name from their profile",
+      "content": "exact tweet text",
+      "username": "username_no_@",
+      "displayName": "Display Name",
       "verified": true/false,
-      "impact": "high" | "medium" | "low",
-      "engagement": actual_likes_plus_retweets,
-      "likes": actual_likes_count,
-      "retweets": actual_retweets_count,
-      "timestamp": "ISO 8601 format timestamp (YYYY-MM-DDTHH:mm:ssZ) when tweet was posted",
-      "relevance": "direct" | "market_impact" | "news"
+      "impact": "high|medium|low",
+      "engagement": likes+retweets,
+      "likes": num,
+      "retweets": num,
+      "timestamp": "ISO8601",
+      "relevance": "direct|market_impact|news"
     }
   ]
 }
 
-Requirements:
-- Return ONLY REAL tweets that exist on X/Twitter from the last 24 hours
-- Include tweets from today only (within the last 24 hours)
-- Include tweets that:
-  1. Directly mention "${stockInput}" OR
-  2. Are from market-moving accounts (elonmusk, Bloomberg, etc.) that impact overall markets OR
-  3. Are breaking news from Bloomberg, CNBC, Reuters that affect markets
-- Use exact tweet content word-for-word as posted
-- Use real usernames (without @ symbol)
-- Use real display names from their profiles
-- Include actual engagement numbers (likes, retweets)
-- Prioritize tweets from verified accounts
-- Include tweets with high engagement (1000+ likes/retweets)
-- Mix of bullish, bearish, and neutral perspectives
-- Focus on tweets from financial analysts, traders, market influencers, and news sources
-- Include timestamp in ISO 8601 format (e.g., "2024-01-15T14:30:00Z")
-- Set "relevance" to "direct" if tweet mentions "${stockInput}", "market_impact" for market-moving accounts, "news" for news sources
-
-DO NOT generate or make up tweets. Only return tweets that actually exist on X/Twitter from the last 24 hours.
-
-Return ONLY valid JSON.`;
+Rules:
+- Only REAL tweets from last 24h
+- Include: mentions "${stockInput}" OR market-moving accounts OR breaking news
+- High engagement preferred (1000+)
+- Mix bullish/bearish/neutral
+- relevance: "direct" if mentions "${stockInput}", "market_impact" for influencers, "news" for news sources
+- Return ONLY valid JSON.`;
 
   const headers = {
     Authorization: `Bearer ${GROK_API_KEY}`,
@@ -868,7 +808,7 @@ Return ONLY valid JSON.`;
     model: 'grok-2-1212',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.7,
-    max_tokens: 3000,
+    max_tokens: 2000, // Reduced from 3000 for token efficiency
     response_format: { type: 'json_object' },
   };
 

@@ -483,7 +483,8 @@ export interface AnalyzeFlowImageResponse {
 }
 
 export const analyzeFlowImage = async (
-  imageUrl: string
+  imageUrl: string,
+  fallbackTicker?: string | null
 ): Promise<FlowImageAnalysis> => {
   try {
     console.log('[FlowImage] Analyzing image:', imageUrl);
@@ -493,7 +494,7 @@ export const analyzeFlowImage = async (
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ imageUrl }),
+      body: JSON.stringify({ imageUrl, fallbackTicker }),
     });
 
     if (!response.ok) {

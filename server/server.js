@@ -317,14 +317,14 @@ app.post('/api/twitter/search', async (req, res) => {
 // Analyze flow image endpoint
 app.post('/api/flow/analyze-image', async (req, res) => {
   try {
-    const { imageUrl } = req.body;
+    const { imageUrl, fallbackTicker } = req.body;
     
     if (!imageUrl) {
       return res.status(400).json({ error: 'imageUrl is required' });
     }
 
     console.log(`[FlowImage] Analyzing image: ${imageUrl}`);
-    const analysis = await analyzeFlowImage(imageUrl);
+    const analysis = await analyzeFlowImage(imageUrl, fallbackTicker || null);
 
     res.json({
       success: true,
