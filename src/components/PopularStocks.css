@@ -1,0 +1,91 @@
+.popular-stocks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.popular-stock-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  transition: var(--transition);
+}
+
+.popular-stock-item:hover {
+  background: var(--hover-bg);
+  border-color: var(--accent-blue);
+  transform: translateX(4px);
+}
+
+.stock-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.stock-ticker {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stock-name {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.stock-price {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.price {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.change {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.change.positive {
+  color: var(--accent-green);
+}
+
+.change.negative {
+  color: var(--accent-red);
+}
+
+.stock-added {
+  color: var(--accent-green);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 16px;
+}
+
+.btn-add {
+  padding: 10px 20px;
+  background: var(--accent-blue);
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.btn-add:hover {
+  background: #1a8cd8;
+  transform: scale(1.05);
+}
+

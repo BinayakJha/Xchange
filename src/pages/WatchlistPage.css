@@ -1,0 +1,107 @@
+.watchlist-page {
+  min-height: 100vh;
+  background: var(--bg-primary);
+  padding: 40px 20px;
+}
+
+.watchlist-header {
+  max-width: 1200px;
+  margin: 0 auto 40px;
+  text-align: center;
+}
+
+.watchlist-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  color: var(--accent-blue);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.watchlist-logo .logo-icon {
+  width: 32px;
+  height: 32px;
+}
+
+.watchlist-title {
+  font-size: 42px;
+  font-weight: 900;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-green) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.watchlist-subtitle {
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+.watchlist-content {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.watchlist-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 40px;
+}
+
+@media (max-width: 1024px) {
+  .watchlist-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.watchlist-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 24px;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.box-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: var(--text-primary);
+}
+
+.watchlist-display-section {
+  margin-bottom: 32px;
+}
+
+.watchlist-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.btn-analyze {
+  padding: 16px 48px;
+  font-size: 18px;
+  min-width: 200px;
+}
+
+.btn-analyze:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 768px) {
+  .watchlist-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .watchlist-title {
+    font-size: 32px;
+  }
+}
+

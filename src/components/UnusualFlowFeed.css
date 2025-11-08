@@ -1,0 +1,549 @@
+.unusual-flow-feed {
+  width: 100%;
+  max-width: 100%;
+}
+
+.flow-feed-header {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 20px;
+}
+
+.flow-feed-header h2 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.flow-feed-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.flow-feed-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.flow-feed-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.flow-feed-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.flow-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.flow-feed-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.flow-feed-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-blue);
+  background: rgba(29, 155, 240, 0.1);
+  padding: 4px 12px;
+  border-radius: 12px;
+}
+
+.flow-feed-count {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.flow-feed-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.flow-feed-empty-icon {
+  color: var(--text-secondary);
+  opacity: 0.5;
+  margin-bottom: 16px;
+}
+
+.flow-feed-empty p {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin: 8px 0;
+}
+
+.flow-feed-empty-hint {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+.flow-feed-debug-info {
+  margin-top: 20px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+/* Flow Card Styles */
+.flow-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 16px;
+  transition: var(--transition);
+  animation: fadeIn 0.3s ease-out;
+}
+
+.flow-card:hover {
+  border-color: var(--accent-blue);
+  box-shadow: 0 4px 12px rgba(29, 155, 240, 0.1);
+  transform: translateY(-2px);
+}
+
+.flow-card.selected {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(29, 155, 240, 0.2);
+  background: rgba(29, 155, 240, 0.05);
+}
+
+.flow-card-header {
+  margin-bottom: 16px;
+}
+
+.flow-card-user {
+  display: flex;
+  gap: 12px;
+}
+
+.flow-card-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.flow-card-user-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.flow-card-user-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.flow-card-display-name {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.flow-card-username {
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.flow-card-time {
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.flow-card-ticker-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.flow-card-ticker {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.flow-card-type {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(29, 155, 240, 0.1);
+}
+
+.flow-card-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-green);
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(0, 186, 124, 0.1);
+}
+
+.flow-card-text {
+  font-size: 15px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin-bottom: 16px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.flow-card-image-container {
+  margin: 16px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+}
+
+.flow-card-image-link {
+  display: block;
+  width: 100%;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.flow-card-image-link:hover {
+  opacity: 0.9;
+}
+
+.flow-card-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  max-height: 300px;
+  object-fit: contain;
+  background: var(--bg-tertiary);
+}
+
+.flow-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.flow-card-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-blue);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: var(--transition);
+}
+
+.flow-card-link:hover {
+  color: var(--accent-blue);
+  opacity: 0.8;
+}
+
+.flow-card-link svg {
+  width: 18px;
+  height: 18px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Flow Analysis Panel */
+.flow-analysis-panel {
+  position: sticky;
+  top: 80px;
+  height: fit-content;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+}
+
+.flow-analysis {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 24px;
+  position: sticky;
+  top: 80px;
+}
+
+.analysis-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.analysis-header h3 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.analysis-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-blue);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: var(--transition);
+}
+
+.analysis-link:hover {
+  opacity: 0.8;
+}
+
+.analysis-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.analysis-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.analysis-section label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.analysis-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.analysis-value.large {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent-blue);
+}
+
+.option-type-badge {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.option-type-badge.call {
+  background: rgba(0, 186, 124, 0.1);
+  color: var(--accent-green);
+}
+
+.option-type-badge.put {
+  background: rgba(244, 33, 46, 0.1);
+  color: var(--accent-red);
+}
+
+.analysis-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.action-button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 20px;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.action-button.buy {
+  background: var(--accent-green);
+  color: white;
+}
+
+.action-button.buy:hover {
+  background: rgba(0, 186, 124, 0.9);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 186, 124, 0.3);
+}
+
+.action-button.buy.recommended {
+  box-shadow: 0 0 0 3px rgba(0, 186, 124, 0.3);
+}
+
+.action-button.sell {
+  background: var(--accent-red);
+  color: white;
+}
+
+.action-button.sell:hover {
+  background: rgba(244, 33, 46, 0.9);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(244, 33, 46, 0.3);
+}
+
+.action-button.sell.recommended {
+  box-shadow: 0 0 0 3px rgba(244, 33, 46, 0.3);
+}
+
+.analysis-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  min-height: 400px;
+}
+
+.analysis-placeholder-icon {
+  color: var(--text-secondary);
+  opacity: 0.5;
+  margin-bottom: 16px;
+}
+
+.analysis-placeholder p {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin: 8px 0;
+}
+
+.analysis-placeholder-hint {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+.analysis-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  min-height: 400px;
+}
+
+.analysis-loading-spinner {
+  color: var(--accent-blue);
+  margin-bottom: 16px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.analysis-loading p {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin: 8px 0;
+}
+
+.analysis-loading-hint {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+@media (max-width: 1200px) {
+  .flow-feed-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-analysis-panel {
+    position: relative;
+    top: 0;
+    max-height: none;
+  }
+
+  .flow-analysis {
+    position: relative;
+    top: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .flow-card {
+    padding: 12px;
+  }
+
+  .flow-card-image {
+    max-height: 200px;
+  }
+
+  .flow-card-ticker-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .flow-cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-actions {
+    flex-direction: column;
+  }
+}
+

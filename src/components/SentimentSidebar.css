@@ -1,0 +1,370 @@
+.sentiment-sidebar {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 20px;
+  position: sticky;
+  top: 80px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+}
+
+.sidebar-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: var(--text-primary);
+}
+
+.sidebar-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.sentiment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sentiment-item {
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.sentiment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.sentiment-ticker-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sentiment-ticker {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.crypto-badge-small {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 5px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sentiment-price-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.sentiment-price {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sentiment-change {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sentiment-change.positive {
+  color: var(--accent-green);
+}
+
+.sentiment-change.negative {
+  color: var(--accent-red);
+}
+
+.sidebar-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.sidebar-loading .spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sentiment-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sentiment-bar-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sentiment-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sentiment-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sentiment-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease-out;
+}
+
+.sentiment-bar-fill.bullish {
+  background: var(--accent-green);
+}
+
+.sentiment-bar-fill.neutral {
+  background: var(--text-secondary);
+}
+
+.sentiment-bar-fill.bearish {
+  background: var(--accent-red);
+}
+
+/* Overall Market Sentiment Styles */
+.market-sentiment-overall {
+  padding: 16px;
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  margin-bottom: 24px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.market-sentiment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.market-sentiment-label {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.market-sentiment-overall-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.market-sentiment-overall-badge.bullish {
+  background: linear-gradient(135deg, var(--accent-green) 0%, #10b981 100%);
+  color: white;
+}
+
+.market-sentiment-overall-badge.bearish {
+  background: linear-gradient(135deg, var(--accent-red) 0%, #ef4444 100%);
+  color: white;
+}
+
+.market-sentiment-overall-badge.neutral {
+  background: linear-gradient(135deg, var(--text-secondary) 0%, #6b7280 100%);
+  color: white;
+}
+
+.market-sentiment-summary {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.market-sentiment-insights {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.insights-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.insights-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.insight-pill {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+  outline: none;
+  color: inherit;
+}
+
+.insight-pill:hover {
+  border-color: var(--accent-blue);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(29, 155, 240, 0.12);
+}
+
+.insight-pill:focus-visible {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(29, 155, 240, 0.35);
+}
+
+.insight-pill.bullish {
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.insight-pill.bearish {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.insight-pill.neutral {
+  border-color: rgba(156, 163, 175, 0.4);
+}
+
+.insight-user {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.insight-direction {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.insight-pill.bullish .insight-direction {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--accent-green);
+}
+
+.insight-pill.bearish .insight-direction {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-red);
+}
+
+.insight-pill.neutral .insight-direction {
+  background: rgba(107, 114, 128, 0.15);
+  color: var(--text-secondary);
+}
+
+.insight-summary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.market-sentiment-drivers {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.drivers-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.drivers-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.drivers-list li {
+  font-size: 13px;
+  color: var(--text-primary);
+  padding-left: 12px;
+  position: relative;
+}
+
+.drivers-list li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--accent-blue);
+  font-weight: 700;
+}
+
+.market-sentiment-sources {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.sources-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+

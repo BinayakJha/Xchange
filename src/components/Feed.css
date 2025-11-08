@@ -1,0 +1,75 @@
+.feed {
+  background: var(--bg-primary);
+}
+
+.feed-header {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
+}
+
+.feed-header h2 {
+  font-size: 24px;
+  font-weight: 900;
+  margin-bottom: 4px;
+}
+
+.feed-subtitle {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.feed-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.feed-empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.feed-empty-icon {
+  color: var(--accent-blue);
+  opacity: 0.5;
+}
+
+.feed-empty-hint {
+  font-size: 14px;
+  opacity: 0.7;
+  margin-top: 8px;
+}
+
+.feed-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+
+.feed-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.feed-count {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
