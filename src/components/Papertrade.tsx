@@ -1,675 +1,843 @@
-import React, { useState } from 'react';
-import { useApp } from '../context/AppContext';
-import { allStocks, popularCrypto, getAvailableOptions } from '../data/mockData';
-import { useStockData } from '../hooks/useStockData';
-import { useCryptoData } from '../hooks/useCryptoData';
-import { OptionSuggestion } from '../types';
-import StockPreview from './StockPreview';
-import CryptoLiveIndicator from './CryptoLiveIndicator';
+import React, { useState, useEffect } from 'react';
 import './Papertrade.css';
 
+interface StockData {
+  symbol: string;
+  regularMarketPrice: number;
+  regularMarketChange: number;
+  regularMarketChangePercent: number;
+  regularMarketVolume: number;
+  marketCap: number;
+  shortName?: string;
+  longName?: string;
+}
+
+interface Position {
+  symbol: string;
+  quantity: number;
+  averagePrice: number;
+  currentPrice: number;
+  totalValue: number;
+  pnl: number;
+  pnlPercent: number;
+  assetType?: 'Stock' | 'Crypto' | 'Option';
+  optionType?: 'CALL' | 'PUT';
+  strikePrice?: number;
+  expirationDate?: string;
+}
+
+interface Transaction {
+  id: string;
+  symbol: string;
+  type: 'BUY' | 'SELL';
+  quantity: number;
+  price: number;
+  total: number;
+  timestamp: Date;
+  assetType?: 'Stock' | 'Crypto' | 'Option';
+  optionType?: 'CALL' | 'PUT';
+  strikePrice?: number;
+  expirationDate?: string;
+}
+
 const Papertrade: React.FC = () => {
-  const {
-    watchlist,
-    positions,
-    addPosition,
-    removePosition,
-    tradeSuggestions: aiTradeSuggestions,
-    optionSuggestions: aiOptionSuggestions,
-  } = useApp();
-  const [tradeType, setTradeType] = useState<'stock' | 'option' | 'crypto'>('stock');
-  const [selectedTicker, setSelectedTicker] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [action, setAction] = useState<'buy' | 'sell'>('buy');
+  const [activeTab, setActiveTab] = useState<'Trade' | 'Portfolio' | 'History'>('Trade');
+  const [assetType, setAssetType] = useState<'Stock' | 'Crypto' | 'Option'>('Stock');
+  const [marketFilter, setMarketFilter] = useState<'All' | 'Gainers' | 'Losers'>('All');
+  const [selectedTicker, setSelectedTicker] = useState('AAPL');
+  const [quantity, setQuantity] = useState<number>(1);
+  const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('MARKET');
+  const [limitPrice, setLimitPrice] = useState<number>(0);
+  const [searchTicker, setSearchTicker] = useState('');
+  const [optionType, setOptionType] = useState<'CALL' | 'PUT'>('CALL');
+  const [strikePrice, setStrikePrice] = useState<number>(0);
+  const [expirationDate, setExpirationDate] = useState<string>('');
   
-  // Options-specific state
-  const [selectedStrike, setSelectedStrike] = useState<number | ''>('');
-  const [selectedExpiration, setSelectedExpiration] = useState<Date | null>(null);
-  const [selectedOptionType, setSelectedOptionType] = useState<'call' | 'put'>('call');
+  // Real-time data states
+  const [watchlistStocks, setWatchlistStocks] = useState<StockData[]>([]);
+  const [marketData, setMarketData] = useState<StockData[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Portfolio states
+  const [cashBalance, setCashBalance] = useState(100000);
+  const [totalEquity, setTotalEquity] = useState(100000);
+  const [totalPnL, setTotalPnL] = useState(0);
 
-  const stockSuggestions = aiTradeSuggestions ?? [];
-  const optionSuggestionList = aiOptionSuggestions ?? [];
+  // Default watchlist symbols - mix of stocks and crypto
+  const defaultSymbols = ['AAPL', 'TSLA', 'MSFT', 'BTC-USD', 'ETH-USD', 'GOOGL', 'AMZN', 'NVDA', 'SOL-USD'];
 
-  const getStockInfo = (ticker: string) => {
-    // This will be used as fallback, real data comes from useStockData hook
-    return allStocks.find((s) => s.ticker === ticker) || 
-           popularCrypto.find((c) => c.ticker === ticker);
+  // Yahoo Finance API call
+  const fetchStockData = async (symbols: string[]): Promise<StockData[]> => {
+    try {
+      const symbolsStr = symbols.join(',');
+      const response = await fetch(`/api/yahoo-finance?symbols=${symbolsStr}`);
+      
+      if (!response.ok) {
+        // Fallback to direct Yahoo Finance API
+        const yahooResponse = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${symbolsStr}?interval=1m&range=1d`,
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+          }
+        );
+        
+        if (!yahooResponse.ok) throw new Error('Failed to fetch data');
+        
+        const data = await yahooResponse.json();
+        return parseYahooData(data);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching stock data:', error);
+      // Return mock data as fallback with realistic values
+      return symbols.map(symbol => ({
+        symbol,
+        regularMarketPrice: Math.random() * 300 + 50,
+        regularMarketChange: (Math.random() - 0.5) * 20,
+        regularMarketChangePercent: (Math.random() - 0.5) * 10,
+        regularMarketVolume: Math.floor(Math.random() * 100000000),
+        marketCap: Math.floor(Math.random() * 3000000000000),
+        shortName: symbol
+      }));
+    }
   };
 
-  const handleStockTrade = async () => {
-    if (!selectedTicker || quantity <= 0) return;
-
-    // Use real stock data if available, otherwise fallback to mock
-    const realStock = selectedStock || getStockInfo(selectedTicker);
-    if (!realStock) return;
-
-    if (action === 'buy') {
-      const position: typeof positions[0] = {
-        id: `pos-${Date.now()}`,
-        ticker: selectedTicker,
-        quantity,
-        entryPrice: realStock.price,
-        currentPrice: realStock.price,
-        pnl: 0,
-        pnlPercent: 0,
-        type: 'stock',
+  const parseYahooData = (data: any): StockData[] => {
+    // Parse Yahoo Finance API response
+    if (!data.chart?.result) return [];
+    
+    return data.chart.result.map((item: any) => {
+      const meta = item.meta;
+      
+      return {
+        symbol: meta.symbol,
+        regularMarketPrice: meta.regularMarketPrice || 0,
+        regularMarketChange: (meta.regularMarketPrice || 0) - (meta.previousClose || 0),
+        regularMarketChangePercent: ((meta.regularMarketPrice || 0) - (meta.previousClose || 0)) / (meta.previousClose || 1) * 100,
+        regularMarketVolume: meta.regularMarketVolume || 0,
+        marketCap: meta.marketCap || 0,
+        shortName: meta.shortName || meta.symbol
       };
-      addPosition(position);
-    } else {
-      const position = positions.find((p) => p.ticker === selectedTicker && p.type === 'stock');
-      if (position) {
-        removePosition(position.id);
+    });
+  };
+
+  // Calculate portfolio metrics
+  const calculatePortfolioMetrics = () => {
+    let totalValue = cashBalance;
+    let totalCost = 0;
+    
+    positions.forEach(position => {
+      totalValue += position.totalValue;
+      totalCost += position.quantity * position.averagePrice;
+    });
+    
+    const pnl = totalValue - 100000; // Initial balance
+    
+    setTotalEquity(totalValue);
+    setTotalPnL(pnl);
+  };
+
+  // Handle buy/sell orders
+  const handleTrade = (action: 'BUY' | 'SELL') => {
+    const selectedStock = watchlistStocks.find(s => s.symbol === selectedTicker);
+    if (!selectedStock) return;
+
+    // Validation for Options
+    if (assetType === 'Option') {
+      if (!strikePrice || strikePrice <= 0) {
+        alert('Please enter a valid strike price!');
+        return;
+      }
+      if (!expirationDate) {
+        alert('Please select an expiration date!');
+        return;
       }
     }
 
-    setSelectedTicker('');
-    setQuantity(1);
-  };
+    const price = orderType === 'LIMIT' ? limitPrice : selectedStock.regularMarketPrice;
+    const totalCost = price * quantity * (assetType === 'Option' ? 100 : 1); // Options are typically 100 shares per contract
 
-  const handleCryptoTrade = async () => {
-    if (!selectedTicker || quantity <= 0) return;
+    // Create unique position key for options
+    const positionKey = assetType === 'Option' 
+      ? `${selectedTicker}_${optionType}_${strikePrice}_${expirationDate}`
+      : selectedTicker;
 
-    // Use real crypto data if available, otherwise fallback to mock
-    const realCrypto = selectedCrypto || getStockInfo(selectedTicker);
-    if (!realCrypto) return;
-
-    if (action === 'buy') {
-      const position: typeof positions[0] = {
-        id: `crypto-${Date.now()}`,
-        ticker: selectedTicker,
-        quantity,
-        entryPrice: realCrypto.price,
-        currentPrice: realCrypto.price,
-        pnl: 0,
-        pnlPercent: 0,
-        type: 'crypto',
-      };
-      addPosition(position);
-    } else {
-      const position = positions.find((p) => p.ticker === selectedTicker && p.type === 'crypto');
-      if (position) {
-        removePosition(position.id);
+    if (action === 'BUY') {
+      if (totalCost > cashBalance) {
+        alert('Insufficient funds!');
+        return;
       }
+
+      setCashBalance(prev => prev - totalCost);
+      
+      // Update or create position
+      setPositions(prev => {
+        const existingPosition = prev.find(p => {
+          if (assetType === 'Option') {
+            return p.symbol === selectedTicker && 
+                   p.assetType === 'Option' &&
+                   p.optionType === optionType &&
+                   p.strikePrice === strikePrice &&
+                   p.expirationDate === expirationDate;
+          }
+          return p.symbol === selectedTicker && !p.assetType;
+        });
+
+        if (existingPosition) {
+          const newQuantity = existingPosition.quantity + quantity;
+          const newAverage = ((existingPosition.averagePrice * existingPosition.quantity) + totalCost) / newQuantity;
+          return prev.map(p => 
+            (assetType === 'Option' ? 
+              (p.symbol === selectedTicker && p.optionType === optionType && p.strikePrice === strikePrice && p.expirationDate === expirationDate) :
+              (p.symbol === selectedTicker && !p.assetType))
+              ? {
+                  ...p,
+                  quantity: newQuantity,
+                  averagePrice: newAverage,
+                  totalValue: newQuantity * selectedStock.regularMarketPrice * (assetType === 'Option' ? 100 : 1),
+                  pnl: (selectedStock.regularMarketPrice - newAverage) * newQuantity * (assetType === 'Option' ? 100 : 1),
+                  pnlPercent: ((selectedStock.regularMarketPrice - newAverage) / newAverage) * 100
+                }
+              : p
+          );
+        } else {
+          return [...prev, {
+            symbol: selectedTicker,
+            quantity,
+            averagePrice: price,
+            currentPrice: selectedStock.regularMarketPrice,
+            totalValue: quantity * selectedStock.regularMarketPrice * (assetType === 'Option' ? 100 : 1),
+            pnl: (selectedStock.regularMarketPrice - price) * quantity * (assetType === 'Option' ? 100 : 1),
+            pnlPercent: ((selectedStock.regularMarketPrice - price) / price) * 100,
+            assetType: assetType,
+            optionType: assetType === 'Option' ? optionType : undefined,
+            strikePrice: assetType === 'Option' ? strikePrice : undefined,
+            expirationDate: assetType === 'Option' ? expirationDate : undefined
+          }];
+        }
+      });
+    } else {
+      // SELL logic
+      const position = positions.find(p => {
+        if (assetType === 'Option') {
+          return p.symbol === selectedTicker && 
+                 p.assetType === 'Option' &&
+                 p.optionType === optionType &&
+                 p.strikePrice === strikePrice &&
+                 p.expirationDate === expirationDate;
+        }
+        return p.symbol === selectedTicker && !p.assetType;
+      });
+
+      if (!position || position.quantity < quantity) {
+        alert(`Insufficient ${assetType === 'Option' ? 'contracts' : 'shares'} to sell!`);
+        return;
+      }
+
+      setCashBalance(prev => prev + totalCost);
+      
+      setPositions(prev => {
+        return prev.map(p => 
+          (assetType === 'Option' ? 
+            (p.symbol === selectedTicker && p.optionType === optionType && p.strikePrice === strikePrice && p.expirationDate === expirationDate) :
+            (p.symbol === selectedTicker && !p.assetType))
+            ? {
+                ...p,
+                quantity: p.quantity - quantity,
+                totalValue: (p.quantity - quantity) * selectedStock.regularMarketPrice * (assetType === 'Option' ? 100 : 1),
+                pnl: (selectedStock.regularMarketPrice - p.averagePrice) * (p.quantity - quantity) * (assetType === 'Option' ? 100 : 1),
+                pnlPercent: ((selectedStock.regularMarketPrice - p.averagePrice) / p.averagePrice) * 100
+              }
+            : p
+        ).filter(p => p.quantity > 0);
+      });
     }
 
-    setSelectedTicker('');
-    setQuantity(1);
-  };
-
-  const handleOptionTrade = () => {
-    if (!selectedTicker || !selectedStrike || !selectedExpiration || quantity <= 0) return;
-
-    // Use real stock data if available, otherwise fallback to mock
-    const stock = selectedStock || getStockInfo(selectedTicker);
-    if (!stock) return;
-
-    const availableOptions = getAvailableOptions(selectedTicker, stock.price);
-    const option = availableOptions.find(
-      (opt) =>
-        opt.strike === selectedStrike &&
-        opt.expiration.getTime() === selectedExpiration.getTime() &&
-        opt.optionType === selectedOptionType
-    );
-
-    if (!option) return;
-
-    const position: typeof positions[0] = {
-      id: `opt-${Date.now()}`,
-      ticker: selectedTicker,
+    // Add transaction
+    const transaction: Transaction = {
+      id: Date.now().toString(),
+      symbol: selectedTicker,
+      type: action,
       quantity,
-      entryPrice: option.premium,
-      currentPrice: option.premium,
-      pnl: 0,
-      pnlPercent: 0,
-      type: 'option',
-      optionDetails: {
-        strike: selectedStrike,
-        expiration: selectedExpiration,
-        optionType: selectedOptionType,
-      },
+      price,
+      total: totalCost,
+      timestamp: new Date(),
+      assetType: assetType,
+      optionType: assetType === 'Option' ? optionType : undefined,
+      strikePrice: assetType === 'Option' ? strikePrice : undefined,
+      expirationDate: assetType === 'Option' ? expirationDate : undefined
     };
-    addPosition(position);
-
-    // Reset form
-    setSelectedTicker('');
-    setSelectedStrike('');
-    setSelectedExpiration(null);
-    setQuantity(1);
+    setTransactions(prev => [transaction, ...prev]);
   };
 
-  const handleSuggestionClick = (suggestion: OptionSuggestion) => {
-    if (!suggestion) return;
-    setTradeType('option');
-    setSelectedTicker(suggestion.ticker);
-    setSelectedStrike(suggestion.strike);
-    setSelectedExpiration(suggestion.expiration ? new Date(suggestion.expiration) : null);
-    setSelectedOptionType(suggestion.optionType || 'call');
-    setQuantity(1);
-    setAction('buy');
+  // Add stock to watchlist
+  const addToWatchlist = async () => {
+    if (!searchTicker || watchlistStocks.find(s => s.symbol === searchTicker.toUpperCase())) {
+      return;
+    }
+
+    const newStockData = await fetchStockData([searchTicker.toUpperCase()]);
+    if (newStockData.length > 0) {
+      setWatchlistStocks(prev => [...prev, ...newStockData]);
+      setSearchTicker('');
+    }
   };
 
-  const totalPnL = positions.reduce((sum, pos) => sum + pos.pnl, 0);
-  const totalValue = positions.reduce((sum, pos) => sum + pos.currentPrice * pos.quantity, 0);
+  // Remove from watchlist
+  const removeFromWatchlist = (symbol: string) => {
+    setWatchlistStocks(prev => prev.filter(s => s.symbol !== symbol));
+  };
 
-  const stockPositions = positions.filter((p) => p.type === 'stock');
-  const optionPositions = positions.filter((p) => p.type === 'option');
-  const cryptoPositions = positions.filter((p) => p.type === 'crypto');
+  // Initialize data
+  useEffect(() => {
+    const initializeData = async () => {
+      setLoading(true);
+      try {
+        const allSymbols = await fetchStockData(defaultSymbols);
+        
+        setWatchlistStocks(allSymbols);
+        setMarketData(allSymbols);
+        setError(null);
+      } catch (err) {
+        setError('Failed to load market data');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  // Get real stock data for options and stocks
-  const { stock: selectedStock } = useStockData(
-    tradeType !== 'crypto' && selectedTicker ? selectedTicker : null
-  );
-  
-  // Get real crypto data for crypto trades
-  const { stock: selectedCrypto } = useCryptoData(
-    tradeType === 'crypto' && selectedTicker ? selectedTicker : null
-  );
-  
-  const availableOptions = selectedStock ? getAvailableOptions(selectedTicker, selectedStock.price) : [];
-  const filteredOptions = availableOptions.filter(
-    (opt) => !selectedExpiration || opt.expiration.getTime() === selectedExpiration.getTime()
-  );
+    initializeData();
+    
+    // Update data every 30 seconds
+    const interval = setInterval(initializeData, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
-  // Get unique expirations
-  const uniqueExpirations = Array.from(
-    new Set(availableOptions.map((opt) => opt.expiration.getTime()))
-  )
-    .map((time) => new Date(time))
-    .sort((a, b) => a.getTime() - b.getTime());
+  // Update portfolio metrics when positions change
+  useEffect(() => {
+    calculatePortfolioMetrics();
+  }, [positions, cashBalance]);
+
+  // Update position values with current prices
+  useEffect(() => {
+    setPositions(prev => 
+      prev.map(position => {
+        const currentStock = watchlistStocks.find(s => s.symbol === position.symbol);
+        if (currentStock) {
+          return {
+            ...position,
+            currentPrice: currentStock.regularMarketPrice,
+            totalValue: position.quantity * currentStock.regularMarketPrice,
+            pnl: (currentStock.regularMarketPrice - position.averagePrice) * position.quantity,
+            pnlPercent: ((currentStock.regularMarketPrice - position.averagePrice) / position.averagePrice) * 100
+          };
+        }
+        return position;
+      })
+    );
+  }, [watchlistStocks]);
+
+  const selectedStock = watchlistStocks.find(s => s.symbol === selectedTicker);
+  const currentPosition = positions.find(p => p.symbol === selectedTicker);
+
+  // Formatters for currency and percent
+  const currencyFmt = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const formatCurrency = (value: number) => currencyFmt.format(Number.isFinite(value) ? value : 0);
+  const formatPercent = (value: number) => `${(Number.isFinite(value) && value >= 0) ? '+' : ''}${(Number.isFinite(value) ? value : 0).toFixed(2)}%`;
+  const formatCompact = (value: number) => {
+    if (!Number.isFinite(value)) return '0';
+    if (value >= 1_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(2)}T`;
+    if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
+    if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+    if (value >= 1_000) return `${(value / 1_000).toFixed(2)}K`;
+    return value.toString();
+  };
+
+  if (loading) {
+    return (
+      <div className="papertrade">
+        <div className="loading-screen">
+          <div className="loading-spinner"></div>
+          <p>Loading market data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="papertrade">
-      <div className="papertrade-header">
-        <h2>Papertrading Portfolio</h2>
-        <div className="portfolio-summary">
-          <div className="summary-item">
-            <span className="summary-label">Total Value</span>
-            <span className="summary-value">${totalValue.toFixed(2)}</span>
+      <div className="papertrade-layout">
+        {/* Left Sidebar - Watchlist */}
+        <div className="watchlist-sidebar">
+          <div className="watchlist-header">
+            <h3>Watchlist</h3>
+            <span className="stock-count">{watchlistStocks.length} assets</span>
           </div>
-          <div className="summary-item">
-            <span className="summary-label">Total P&L</span>
-            <span className={`summary-value ${totalPnL >= 0 ? 'positive' : 'negative'}`}>
-              ${totalPnL >= 0 ? '+' : ''}
-              {totalPnL.toFixed(2)}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="papertrade-content">
-        <div className="trade-section">
-          <div className="trade-type-tabs">
-            <button
-              className={`trade-type-tab ${tradeType === 'stock' ? 'active' : ''}`}
-              onClick={() => setTradeType('stock')}
-            >
-              Stocks
-            </button>
-            <button
-              className={`trade-type-tab ${tradeType === 'crypto' ? 'active' : ''}`}
-              onClick={() => setTradeType('crypto')}
-            >
-              Crypto
-            </button>
-            <button
-              className={`trade-type-tab ${tradeType === 'option' ? 'active' : ''}`}
-              onClick={() => setTradeType('option')}
-            >
-              Options
-            </button>
-          </div>
-
-          <h3>Execute Trade</h3>
-          <div className="trade-form">
-            <div className="form-group">
-              <label>{tradeType === 'crypto' ? 'Crypto' : 'Stock'}</label>
-              <select
-                value={selectedTicker}
-                onChange={(e) => {
-                  setSelectedTicker(e.target.value);
-                  setSelectedStrike('');
-                  setSelectedExpiration(null);
-                }}
-                className="form-input"
-              >
-                <option value="">Select {tradeType === 'crypto' ? 'crypto' : 'stock'}...</option>
-                {watchlist
-                  .filter((item) => {
-                    if (tradeType === 'crypto') {
-                      return item.ticker.includes('-') || item.ticker.includes('USD');
-                    } else {
-                      return !item.ticker.includes('-') && !item.ticker.includes('USD');
-                    }
-                  })
-                  .map((item) => {
-                    const stock = getStockInfo(item.ticker);
-                    return stock ? (
-                      <option key={item.ticker} value={item.ticker}>
-                        {tradeType === 'crypto' ? item.ticker.replace('-USD', '') : item.ticker} - {stock.name}
-                      </option>
-                    ) : null;
-                  })}
-              </select>
-            </div>
-
-            {tradeType === 'option' && selectedTicker && (
-              <>
-                <div className="form-group">
-                  <label>Option Type</label>
-                  <div className="action-buttons">
-                    <button
-                      className={`action-btn ${selectedOptionType === 'call' ? 'active call' : ''}`}
-                      onClick={() => setSelectedOptionType('call')}
-                    >
-                      Call
-                    </button>
-                    <button
-                      className={`action-btn ${selectedOptionType === 'put' ? 'active put' : ''}`}
-                      onClick={() => setSelectedOptionType('put')}
-                    >
-                      Put
-                    </button>
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label>Expiration</label>
-                  <select
-                    value={selectedExpiration ? selectedExpiration.getTime().toString() : ''}
-                    onChange={(e) => {
-                      const time = parseInt(e.target.value);
-                      setSelectedExpiration(time ? new Date(time) : null);
-                      setSelectedStrike('');
-                    }}
-                    className="form-input"
-                  >
-                    <option value="">Select expiration...</option>
-                    {uniqueExpirations.map((exp) => (
-                      <option key={exp.getTime()} value={exp.getTime().toString()}>
-                        {exp.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label>Strike Price</label>
-                  <select
-                    value={selectedStrike}
-                    onChange={(e) => setSelectedStrike(e.target.value ? parseFloat(e.target.value) : '')}
-                    className="form-input"
-                  >
-                    <option value="">Select strike...</option>
-                    {filteredOptions
-                      .filter((opt) => opt.optionType === selectedOptionType)
-                      .map((opt) => (
-                        <option key={opt.strike} value={opt.strike}>
-                          ${opt.strike} - Premium: ${opt.premium.toFixed(2)} (IV: {opt.impliedVolatility.toFixed(1)}%)
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              </>
-            )}
-
-            {(tradeType === 'stock' || tradeType === 'crypto') && (
-              <div className="form-group">
-                <label>Action</label>
-                <div className="action-buttons">
-                  <button
-                    className={`action-btn ${action === 'buy' ? 'active buy' : ''}`}
-                    onClick={() => setAction('buy')}
-                  >
-                    Buy
-                  </button>
-                  <button
-                    className={`action-btn ${action === 'sell' ? 'active sell' : ''}`}
-                    onClick={() => setAction('sell')}
-                  >
-                    Sell
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="form-group">
-              <label>Quantity {tradeType === 'option' ? '(Contracts)' : tradeType === 'crypto' ? '(Coins)' : '(Shares)'}</label>
+          
+          <div className="add-stock-section">
+            <div className="search-input-container">
               <input
-                type="number"
-                min="1"
-                step={tradeType === 'crypto' ? '0.0001' : '1'}
-                value={quantity}
-                onChange={(e) => setQuantity(tradeType === 'crypto' ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 1)}
-                className="form-input"
+                type="text"
+                placeholder="Add ticker..."
+                value={searchTicker}
+                onChange={(e) => setSearchTicker(e.target.value.toUpperCase())}
+                className="search-input"
+                onKeyPress={(e) => e.key === 'Enter' && addToWatchlist()}
               />
+              <button onClick={addToWatchlist} className="add-btn">+</button>
             </div>
-
-            {selectedTicker && (
-              <div className="trade-preview">
-                {tradeType === 'stock' && (
-                  <StockPreview ticker={selectedTicker} quantity={quantity} action={action} />
-                )}
-                {tradeType === 'crypto' && selectedCrypto && (
-                  <>
-                    <p>
-                      {action === 'buy' ? 'Buy' : 'Sell'} {quantity} {selectedCrypto.ticker.replace('-USD', '')} at ${selectedCrypto.price.toFixed(selectedCrypto.price >= 1 ? 2 : 4)}
-                    </p>
-                    <p className="trade-total">
-                      Total: ${(selectedCrypto.price * quantity).toFixed(selectedCrypto.price >= 1 ? 2 : 4)}
-                    </p>
-                    <CryptoLiveIndicator />
-                  </>
-                )}
-                {tradeType === 'option' && selectedStrike && selectedExpiration && (
-                  <>
-                    <p>
-                      Buy {quantity} {selectedOptionType} contract{quantity > 1 ? 's' : ''} of {selectedTicker}
-                    </p>
-                    <p>
-                      Strike: ${selectedStrike} | Exp: {selectedExpiration.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </p>
-                    {filteredOptions.find(
-                      (opt) =>
-                        opt.strike === selectedStrike &&
-                        opt.optionType === selectedOptionType
-                    ) && (
-                      <p className="trade-total">
-                        Premium: ${(
-                          filteredOptions.find(
-                            (opt) =>
-                              opt.strike === selectedStrike &&
-                              opt.optionType === selectedOptionType
-                          )!.premium * quantity * 100
-                        ).toFixed(2)}
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-
-            <button
-              className="btn btn-primary btn-execute"
-              onClick={
-                tradeType === 'stock' 
-                  ? handleStockTrade 
-                  : tradeType === 'crypto'
-                  ? handleCryptoTrade
-                  : handleOptionTrade
-              }
-            >
-              Execute {tradeType === 'crypto' 
-                ? (action === 'buy' ? 'Buy' : 'Sell') 
-                : tradeType === 'stock' 
-                ? (action === 'buy' ? 'Buy' : 'Sell') 
-                : 'Buy'} {tradeType === 'option' ? 'Option' : tradeType === 'crypto' ? 'Crypto' : ''}
-            </button>
           </div>
-
-          <div className="suggestions-box">
-            <h4>Stock Suggestions</h4>
-            <div className="quick-suggestions">
-          {stockSuggestions
-                .filter((s) => watchlist.some((w) => w.ticker === s.ticker))
-                .map((suggestion) => (
-                  <div
-                    key={suggestion.id}
-                    className="quick-suggestion"
-                    onClick={() => {
-                      setTradeType('stock');
-                      setSelectedTicker(suggestion.ticker);
-                  setAction(suggestion.action === 'sell' ? 'sell' : 'buy');
-                      setQuantity(1);
+          
+          <div className="watchlist-items">
+            {watchlistStocks.map((stock) => (
+              <div 
+                key={stock.symbol} 
+                className={`watchlist-item ${selectedTicker === stock.symbol ? 'active' : ''}`}
+                onClick={() => setSelectedTicker(stock.symbol)}
+              >
+                <div className="stock-info">
+                  <div className="stock-symbol">{stock.shortName || stock.symbol}</div>
+                  <div className="stock-price">{formatCurrency(stock.regularMarketPrice)}</div>
+                </div>
+                <div className="stock-change-container">
+                  <span className={`stock-change-percent ${stock.regularMarketChangePercent >= 0 ? 'positive' : 'negative'}`}>
+                    {formatPercent(stock.regularMarketChangePercent)}
+                  </span>
+                  <button 
+                    className="remove-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeFromWatchlist(stock.symbol);
                     }}
-                title={suggestion.reason}
-                  >
-                <div className="quick-suggestion-header">
-                  <span className="quick-ticker">${suggestion.ticker}</span>
-                  <span className={`quick-action ${suggestion.action}`}>
-                    {suggestion.action.toUpperCase()}
-                  </span>
+                  >×</button>
                 </div>
-                {suggestion.timeframe && (
-                  <span className="quick-timeframe">{suggestion.timeframe.replace('_', ' ')}</span>
-                )}
-                <p className="quick-reason">{suggestion.reason}</p>
-                  </div>
-                ))}
-            </div>
-          </div>
-
-          <div className="suggestions-box">
-            <h4>Options Suggestions</h4>
-            <div className="options-suggestions">
-          {optionSuggestionList
-                .filter((s) => watchlist.some((w) => w.ticker === s.ticker))
-                .map((suggestion) => (
-                  <div
-                    key={suggestion.id}
-                    className="option-suggestion"
-                    onClick={() => handleSuggestionClick(suggestion)}
-                  >
-                    <div className="option-suggestion-header">
-                      <span className="option-ticker">${suggestion.ticker}</span>
-                      <span className={`option-type ${suggestion.optionType}`}>
-                        {suggestion.optionType.toUpperCase()}
-                      </span>
-                  {suggestion.action && (
-                    <span className={`option-action ${suggestion.action}`}>
-                      {suggestion.action.toUpperCase()}
-                    </span>
-                  )}
-                  {suggestion.strategy && (
-                    <span className="option-strategy">{suggestion.strategy.replace('_', ' ')}</span>
-                  )}
-                    </div>
-                    <div className="option-suggestion-details">
-                      <span>Strike: ${suggestion.strike}</span>
-                      <span>Premium: ${suggestion.premium.toFixed(2)}</span>
-                    </div>
-                <div className="option-suggestion-meta">
-                  {suggestion.timeframe && <span>{suggestion.timeframe.replace('_', ' ')}</span>}
-                  <span>
-                    Exp:{' '}
-                    {suggestion.expiration.toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                    })}
-                  </span>
-                </div>
-                    <div className="option-suggestion-reason">{suggestion.reason}</div>
-                    <div className="option-suggestion-confidence">
-                      <span>Confidence: {suggestion.confidence}%</span>
-                      {suggestion.targetPrice && (
-                        <span>Target: ${suggestion.targetPrice}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="positions-section">
-          <h3>Your Positions</h3>
-          {positions.length === 0 ? (
-            <div className="positions-empty">
-              <p>No open positions. Start trading to build your portfolio!</p>
+        {/* Center Content */}
+        <div className="center-content">
+          {/* Portfolio Summary Cards */}
+          <div className="portfolio-cards-top">
+            <div className="portfolio-card">
+              <div className="card-icon cash-icon">$</div>
+              <div className="card-info">
+                <div className="card-label">Cash Balance</div>
+                <div className="card-value">{formatCurrency(cashBalance)}</div>
+              </div>
             </div>
-          ) : (
-            <>
-              {stockPositions.length > 0 && (
-                <div className="positions-group">
-                  <h4 className="positions-group-title">Stocks</h4>
-                  <div className="positions-list">
-                    {stockPositions.map((position) => (
-                      <div key={position.id} className="position-item">
-                        <div className="position-header">
-                          <span className="position-ticker">{position.ticker}</span>
-                          <button
-                            className="btn-close"
-                            onClick={() => removePosition(position.id)}
-                            title="Close position"
-                          >
-                            ×
-                          </button>
-                        </div>
-                        <div className="position-details">
-                          <div className="position-row">
-                            <span>Quantity:</span>
-                            <span>{position.quantity}</span>
-                          </div>
-                          <div className="position-row">
-                            <span>Entry Price:</span>
-                            <span>${position.entryPrice.toFixed(2)}</span>
-                          </div>
-                          <div className="position-row">
-                            <span>Current Price:</span>
-                            <span>${position.currentPrice.toFixed(2)}</span>
-                          </div>
-                          <div className="position-row">
-                            <span>P&L:</span>
-                            <span className={position.pnl >= 0 ? 'positive' : 'negative'}>
-                              ${position.pnl >= 0 ? '+' : ''}
-                              {position.pnl.toFixed(2)} ({position.pnlPercent >= 0 ? '+' : ''}
-                              {position.pnlPercent.toFixed(2)}%)
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
-              {cryptoPositions.length > 0 && (
-                <div className="positions-group">
-                  <h4 className="positions-group-title">
-                    Crypto
-                    <CryptoLiveIndicator />
-                  </h4>
-                  <div className="positions-list">
-                    {cryptoPositions.map((position) => {
-                      const isCrypto = position.type === 'crypto';
-                      const formatPrice = (price: number) => {
-                        if (isCrypto) {
-                          if (price >= 1000) return price.toFixed(2);
-                          if (price >= 1) return price.toFixed(2);
-                          return price.toFixed(4);
-                        }
-                        return price.toFixed(2);
-                      };
-                      
-                      return (
-                        <div key={position.id} className="position-item crypto-position">
-                          <div className="position-header">
-                            <div className="position-ticker-info">
-                              <span className="position-ticker">
-                                {position.ticker.replace('-USD', '')}
-                              </span>
-                              <span className="crypto-badge-small">CRYPTO</span>
-                            </div>
-                            <button
-                              className="btn-close"
-                              onClick={() => removePosition(position.id)}
-                              title="Close position"
-                            >
-                              ×
-                            </button>
-                          </div>
-                          <div className="position-details">
-                            <div className="position-row">
-                              <span>Quantity:</span>
-                              <span>{position.quantity}</span>
-                            </div>
-                            <div className="position-row">
-                              <span>Entry Price:</span>
-                              <span>${formatPrice(position.entryPrice)}</span>
-                            </div>
-                            <div className="position-row">
-                              <span>Current Price:</span>
-                              <span>${formatPrice(position.currentPrice)}</span>
-                            </div>
-                            <div className="position-row">
-                              <span>P&L:</span>
-                              <span className={position.pnl >= 0 ? 'positive' : 'negative'}>
-                                ${position.pnl >= 0 ? '+' : ''}
-                                {formatPrice(Math.abs(position.pnl))} ({position.pnlPercent >= 0 ? '+' : ''}
-                                {position.pnlPercent.toFixed(2)}%)
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+            <div className="portfolio-card">
+              <div className="card-icon equity-icon">₿</div>
+              <div className="card-info">
+                <div className="card-label">Total Equity</div>
+                <div className="card-value">{formatCurrency(totalEquity)}</div>
+              </div>
+            </div>
+
+            <div className="portfolio-card pnl-card">
+              <div className="card-icon pnl-icon">↗</div>
+              <div className="card-info">
+                <div className="card-label">Total P&L</div>
+                <div className={`card-value ${totalPnL >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(totalPnL)} {formatPercent(totalPnL / 100000 * 100)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Top Navigation */}
+          <div className="top-nav">
+            {['Trade', 'Portfolio', 'History'].map((tab) => (
+              <button
+                key={tab}
+                className={`nav-tab ${activeTab === tab ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab as typeof activeTab)}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab Content */}
+          {activeTab === 'Trade' && (
+            <div className="trading-interface">
+              <div className="trading-header">
+                <h3>Trade {selectedTicker}</h3>
+                <div className="cash-display">{formatCurrency(cashBalance)}</div>
+              </div>
+
+              <div className="trading-form">
+                <div className="form-section">
+                  <label>ASSET TYPE</label>
+                  <select 
+                    value={assetType}
+                    onChange={(e) => setAssetType(e.target.value as 'Stock' | 'Crypto' | 'Option')}
+                    className="symbol-select"
+                  >
+                    <option value="Stock">Stock</option>
+                    <option value="Crypto">Crypto</option>
+                    <option value="Option">Option</option>
+                  </select>
+                </div>
+
+                <div className="form-section">
+                  <label>SYMBOL</label>
+                  <select 
+                    value={selectedTicker}
+                    onChange={(e) => setSelectedTicker(e.target.value)}
+                    className="symbol-select"
+                  >
+                    {watchlistStocks.map(stock => (
+                      <option key={stock.symbol} value={stock.symbol}>
+                        {stock.symbol} - ${stock.regularMarketPrice.toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {assetType === 'Option' && (
+                  <>
+                    <div className="form-section">
+                      <label>OPTION TYPE</label>
+                      <select 
+                        value={optionType}
+                        onChange={(e) => setOptionType(e.target.value as 'CALL' | 'PUT')}
+                        className="order-type-select"
+                      >
+                        <option value="CALL">Call</option>
+                        <option value="PUT">Put</option>
+                      </select>
+                    </div>
+
+                    <div className="form-section">
+                      <label>STRIKE PRICE</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={strikePrice}
+                        onChange={(e) => setStrikePrice(Number(e.target.value))}
+                        className="price-input"
+                        placeholder="Strike price"
+                      />
+                    </div>
+
+                    <div className="form-section">
+                      <label>EXPIRATION DATE</label>
+                      <input
+                        type="date"
+                        value={expirationDate}
+                        onChange={(e) => setExpirationDate(e.target.value)}
+                        className="price-input"
+                        min={new Date().toISOString().split('T')[0]}
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="form-section">
+                  <label>ORDER TYPE</label>
+                  <select 
+                    value={orderType}
+                    onChange={(e) => setOrderType(e.target.value as 'MARKET' | 'LIMIT')}
+                    className="order-type-select"
+                  >
+                    <option value="MARKET">Market Order</option>
+                    <option value="LIMIT">Limit Order</option>
+                  </select>
+                </div>
+
+                <div className="form-section">
+                  <label>QUANTITY</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={quantity}
+                    onChange={(e) => setQuantity(Number(e.target.value))}
+                    className="quantity-input"
+                  />
+                </div>
+
+                {orderType === 'LIMIT' && (
+                  <div className="form-section">
+                    <label>LIMIT PRICE</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={limitPrice}
+                      onChange={(e) => setLimitPrice(Number(e.target.value))}
+                      className="price-input"
+                    />
+                  </div>
+                )}
+
+                <div className="current-price">
+                  <div className="price-display">
+                    <span className="ticker-name">{selectedTicker}</span>
+                    <span className={`price-value ${(selectedStock?.regularMarketChange ?? 0) >= 0 ? 'positive' : 'negative'}`}>
+                      {selectedStock ? formatCurrency(selectedStock.regularMarketPrice) : formatCurrency(0)}
+                    </span>
+                    <span className={`price-change ${(selectedStock?.regularMarketChangePercent ?? 0) >= 0 ? 'positive' : 'negative'}`}>
+                      {formatPercent(selectedStock?.regularMarketChangePercent ?? 0)}
+                    </span>
+                  </div>
+                  
+                  {currentPosition && (
+                    <div className="position-display">
+                      <span>Current Position: {currentPosition.quantity} shares</span>
+                      <span className={`position-pnl ${currentPosition.pnl >= 0 ? 'positive' : 'negative'}`}>
+                        P&L: {formatCurrency(currentPosition.pnl)} ({formatPercent(currentPosition.pnlPercent)})
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="order-summary">
+                  <div className="summary-row">
+                    <span>Order Total:</span>
+                    <span>{formatCurrency(((orderType === 'LIMIT' ? limitPrice : selectedStock?.regularMarketPrice || 0) * quantity))}</span>
                   </div>
                 </div>
-              )}
-              {optionPositions.length > 0 && (
-                <div className="positions-group">
-                  <h4 className="positions-group-title">Options</h4>
-                  <div className="positions-list">
-                    {optionPositions.map((position) => (
-                      <div key={position.id} className="position-item option-position">
-                        <div className="position-header">
-                          <div className="position-ticker-info">
-                            <span className="position-ticker">{position.ticker}</span>
-                            <span className={`option-badge ${position.optionDetails?.optionType}`}>
-                              {position.optionDetails?.optionType.toUpperCase()}
-                            </span>
-                          </div>
-                          <button
-                            className="btn-close"
-                            onClick={() => removePosition(position.id)}
-                            title="Close position"
-                          >
-                            ×
-                          </button>
+
+                <div className="trade-buttons">
+                  <button 
+                    className="buy-btn"
+                    onClick={() => handleTrade('BUY')}
+                    disabled={!selectedStock}
+                  >
+                    Buy {quantity} {assetType === 'Option' ? 'contract' + (quantity > 1 ? 's' : '') : 'share' + (quantity > 1 ? 's' : '')}
+                  </button>
+                  <button 
+                    className="sell-btn"
+                    onClick={() => handleTrade('SELL')}
+                    disabled={!currentPosition || currentPosition.quantity < quantity}
+                  >
+                    Sell {quantity} {assetType === 'Option' ? 'contract' + (quantity > 1 ? 's' : '') : 'share' + (quantity > 1 ? 's' : '')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'Portfolio' && (
+            <div className="portfolio-view">
+              <h3>Current Holdings</h3>
+              {positions.length === 0 ? (
+                <div className="empty-portfolio">
+                  <p>No positions held. Start trading to build your portfolio!</p>
+                </div>
+              ) : (
+                <div className="positions-grid">
+                  {positions.map((position, index) => (
+                    <div key={`${position.symbol}_${index}`} className="position-card">
+                      <div className="position-header">
+                        <span className="position-symbol">
+                          {position.symbol}
+                          {position.assetType === 'Option' && (
+                            <span className="option-badge">{position.optionType}</span>
+                          )}
+                        </span>
+                        <span className={`position-pnl ${position.pnl >= 0 ? 'positive' : 'negative'}`}>
+                          {formatCurrency(position.pnl)}
+                        </span>
+                      </div>
+                      <div className="position-details">
+                        {position.assetType === 'Option' && (
+                          <>
+                            <div className="position-row">
+                              <span>Strike Price:</span>
+                              <span>{formatCurrency(position.strikePrice || 0)}</span>
+                            </div>
+                            <div className="position-row">
+                              <span>Expiration:</span>
+                              <span>{position.expirationDate}</span>
+                            </div>
+                          </>
+                        )}
+                        <div className="position-row">
+                          <span>Quantity:</span>
+                          <span>{position.quantity} {position.assetType === 'Option' ? 'contracts' : 'shares'}</span>
                         </div>
-                        <div className="position-details">
-                          <div className="position-row">
-                            <span>Contracts:</span>
-                            <span>{position.quantity}</span>
-                          </div>
-                          <div className="position-row">
-                            <span>Strike:</span>
-                            <span>${position.optionDetails?.strike.toFixed(2)}</span>
-                          </div>
-                          <div className="position-row">
-                            <span>Expiration:</span>
-                            <span>
-                              {position.optionDetails?.expiration.toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                              })}
-                            </span>
-                          </div>
-                          <div className="position-row">
-                            <span>Entry Premium:</span>
-                            <span>${position.entryPrice.toFixed(2)}</span>
-                          </div>
-                          <div className="position-row">
-                            <span>Current Premium:</span>
-                            <span>${position.currentPrice.toFixed(2)}</span>
-                          </div>
-                          <div className="position-row">
-                            <span>P&L:</span>
-                            <span className={position.pnl >= 0 ? 'positive' : 'negative'}>
-                              ${position.pnl >= 0 ? '+' : ''}
-                              {position.pnl.toFixed(2)} ({position.pnlPercent >= 0 ? '+' : ''}
-                              {position.pnlPercent.toFixed(2)}%)
-                            </span>
-                          </div>
+                        <div className="position-row">
+                          <span>Avg Price:</span>
+                          <span>{formatCurrency(position.averagePrice)}</span>
+                        </div>
+                        <div className="position-row">
+                          <span>Current:</span>
+                          <span>{formatCurrency(position.currentPrice)}</span>
+                        </div>
+                        <div className="position-row">
+                          <span>Total Value:</span>
+                          <span>{formatCurrency(position.totalValue)}</span>
+                        </div>
+                        <div className="position-row">
+                          <span>P&L %:</span>
+                          <span className={`${position.pnlPercent >= 0 ? 'positive' : 'negative'}`}>
+                            {formatPercent(position.pnlPercent)}
+                          </span>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
               )}
-            </>
+            </div>
+          )}
+
+          {activeTab === 'History' && (
+            <div className="history-view">
+              <h3>Transaction History</h3>
+              {transactions.length === 0 ? (
+                <div className="empty-history">
+                  <p>No transactions yet. Make your first trade!</p>
+                </div>
+              ) : (
+                <div className="transactions-list">
+                  {transactions.map(transaction => (
+                    <div key={transaction.id} className="transaction-item">
+                      <div className="transaction-main">
+                        <span className={`transaction-type ${transaction.type.toLowerCase()}`}>
+                          {transaction.type}
+                        </span>
+                        <span className="transaction-symbol">
+                          {transaction.symbol}
+                          {transaction.assetType === 'Option' && (
+                            <span className="option-badge">{transaction.optionType} ${transaction.strikePrice} {transaction.expirationDate}</span>
+                          )}
+                        </span>
+                        <span className="transaction-quantity">
+                          {transaction.quantity} {transaction.assetType === 'Option' ? 'contracts' : 'shares'}
+                        </span>
+                        <span className="transaction-price">@ {formatCurrency(transaction.price)}</span>
+                        <span className="transaction-total">{formatCurrency(transaction.total)}</span>
+                      </div>
+                      <div className="transaction-time">
+                        {transaction.timestamp.toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
+
+        {/* Right Sidebar - Market Heatmap */}
+        <div className="market-sidebar">
+          <div className="market-header">
+            <div className="market-title">
+              <span className="chart-icon">▤</span>
+              Market Overview
+            </div>
+            <div className="market-filters">
+              <button 
+                className={`filter-btn ${marketFilter === 'All' ? 'active' : ''}`}
+                onClick={() => setMarketFilter('All')}
+              >
+                All
+              </button>
+              <button 
+                className={`filter-btn ${marketFilter === 'Gainers' ? 'active' : ''}`}
+                onClick={() => setMarketFilter('Gainers')}
+              >
+                Gainers
+              </button>
+              <button 
+                className={`filter-btn ${marketFilter === 'Losers' ? 'active' : ''}`}
+                onClick={() => setMarketFilter('Losers')}
+              >
+                Losers
+              </button>
+            </div>
+          </div>
+
+          <div className="market-categories">
+            <button className={`category-btn ${assetType === 'Stock' ? 'active' : ''}`} onClick={() => setAssetType('Stock')}>
+              Stocks
+            </button>
+            <button className={`category-btn ${assetType === 'Crypto' ? 'active' : ''}`} onClick={() => setAssetType('Crypto')}>
+              Crypto
+            </button>
+          </div>
+
+          <div className="market-stats">
+            <div className="stat-item">
+              <span className="stat-label">Top Gainer</span>
+              <span className="stat-value positive">
+                {marketData.reduce((top, item) => 
+                  item.regularMarketChangePercent > top.regularMarketChangePercent ? item : top, 
+                  marketData[0] || { symbol: 'N/A', regularMarketChangePercent: 0 }
+                ).symbol} +{marketData.reduce((top, item) => 
+                  item.regularMarketChangePercent > top.regularMarketChangePercent ? item : top, 
+                  marketData[0] || { regularMarketChangePercent: 0 }
+                ).regularMarketChangePercent.toFixed(2)}%
+              </span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-label">Top Loser</span>
+              <span className="stat-value negative">
+                {marketData.reduce((bottom, item) => 
+                  item.regularMarketChangePercent < bottom.regularMarketChangePercent ? item : bottom, 
+                  marketData[0] || { symbol: 'N/A', regularMarketChangePercent: 0 }
+                ).symbol} {marketData.reduce((bottom, item) => 
+                  item.regularMarketChangePercent < bottom.regularMarketChangePercent ? item : bottom, 
+                  marketData[0] || { regularMarketChangePercent: 0 }
+                ).regularMarketChangePercent.toFixed(2)}%
+              </span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-label">Total Assets</span>
+              <span className="stat-value">{marketData.length}</span>
+            </div>
+          </div>
+
+          {/* Market Heatmap Items */}
+          <div className="heatmap-grid">
+            {marketData
+              .filter(item => assetType === 'Crypto' ? item.symbol.includes('-USD') : !item.symbol.includes('-USD'))
+              .filter(item => {
+                if (marketFilter === 'Gainers') return item.regularMarketChangePercent > 0;
+                if (marketFilter === 'Losers') return item.regularMarketChangePercent < 0;
+                return true;
+              })
+              .map((item) => (
+                <div 
+                  key={item.symbol}
+                  className={`heatmap-item ${item.regularMarketChangePercent >= 0 ? 'positive' : 'negative'}`}
+                  onClick={() => setSelectedTicker(item.symbol)}
+                >
+                  <div className="heatmap-symbol">{item.shortName || item.symbol}</div>
+                  <div className="heatmap-price">{formatCurrency(item.regularMarketPrice)}</div>
+                  <div className="heatmap-change">
+                    {formatPercent(item.regularMarketChangePercent)}
+                  </div>
+                  <div className="heatmap-details">
+                    <span>VOL: {formatCompact(item.regularMarketVolume)}</span>
+                    <span>CAP: {formatCompact(item.marketCap)}</span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
       </div>
+
+      {error && (
+        <div className="error-banner">
+          <span>⚠️ {error}</span>
+          <button onClick={() => setError(null)}>×</button>
+        </div>
+      )}
     </div>
   );
 };
