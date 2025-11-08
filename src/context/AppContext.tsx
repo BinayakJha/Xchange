@@ -630,6 +630,56 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               return;
             }
 
+            // FILTER: Only include tweets with market impact
+            const impact = grokTweet.impact || (grokTweet.verified ? 'medium' : 'low');
+            const engagement = (grokTweet.likes || 0) + (grokTweet.retweets || 0);
+            const isVerified = grokTweet.verified || false;
+            
+            // High-impact accounts that should always be included
+            const highImpactAccounts = [
+              'elonmusk', 'realDonaldTrump', 'DeItaone', 'Bloomberg', 'CNBC', 
+              'Reuters', 'WSJ', 'MarketWatch', 'FederalReserve', 'JimCramer',
+              'YahooFinance', 'business', 'FinancialTimes'
+            ];
+            const isHighImpactAccount = highImpactAccounts.some(acc => 
+              grokTweet.username?.toLowerCase().includes(acc.toLowerCase())
+            );
+            
+            // Filter criteria: Only include if:
+            // 1. High impact AND good engagement (5k+) OR from high-impact account
+            // 2. Medium impact AND decent engagement (500+) OR from verified account
+            // 3. Low impact ONLY if from high-impact verified account with 200+ engagement
+            const shouldInclude = 
+              (impact === 'high' && (engagement >= 5000 || isHighImpactAccount)) ||
+              (impact === 'medium' && (engagement >= 500 || isVerified || isHighImpactAccount)) ||
+              (impact === 'low' && isHighImpactAccount && engagement >= 200 && isVerified);
+            
+            if (!shouldInclude) {
+              return; // Skip low-impact tweets
+            }
+
+            // Additional filter: Check if tweet is actually market-related
+            const content = grokTweet.content || '';
+            const marketKeywords = /(stock|market|trading|finance|economy|fed|inflation|recession|gdp|earnings|revenue|profit|loss|investment|portfolio|bull|bear|crypto|bitcoin|ethereum|dollar|yuan|euro|rate|interest|bond|equity|sector|index|wall street|dow|nasdaq|s&p|price|buy|sell|hold|call|put|option)/i;
+            const hasTicker = /\$[A-Z]{1,5}\b/i.test(content); // Has $TICKER format
+            const isMarketRelated = marketKeywords.test(content) || hasTicker;
+            
+            // Exclude non-financial content
+            const nonFinancialPatterns = [
+              /mayoral|mayor|election|political|campaign|vote|voting|ballot/i,
+              /sports|football|basketball|soccer|baseball|tennis|golf/i,
+              /entertainment|movie|film|actor|actress|celebrity|music|song/i,
+              /weather|temperature|rain|snow|storm/i,
+            ];
+            const isNonFinancial = nonFinancialPatterns.some(pattern => pattern.test(content));
+            
+            if (!isMarketRelated || isNonFinancial) {
+              // Only include if from high-impact account (they might tweet about non-financial but still move markets)
+              if (!isHighImpactAccount) {
+                return; // Skip non-market tweets from regular accounts
+              }
+            }
+
             const key = `${grokTweet.username}|${grokTweet.content}`;
             if (existingKeys.has(key)) {
               return;
@@ -1055,39 +1105,106 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       lastMarketAnalysisRef.current = now;
 
       try {
-        // Optimize: Ensure diversity across accounts, then sort by engagement
-        // Group tweets by username to ensure we get tweets from multiple accounts
-        const tweetsByUser = new Map<string, typeof tweets>();
-        tweets.forEach(tweet => {
-          if (!tweet.username) return;
-          if (!tweetsByUser.has(tweet.username)) {
-            tweetsByUser.set(tweet.username, []);
+        const now = Date.now();
+        const sixHoursAgo = now - (6 * 60 * 60 * 1000); // 6 hours in milliseconds
+        
+        // FILTER: Only include recent tweets (last 6 hours) that are market-impactful
+        const recentMarketTweets = tweets.filter(tweet => {
+          if (!tweet.timestamp) return false;
+          
+          const tweetTime = tweet.timestamp.getTime();
+          const isRecent = tweetTime >= sixHoursAgo;
+          
+          // Must be recent AND market-related
+          const content = tweet.content || '';
+          const hasTicker = /\$[A-Z]{1,5}\b/i.test(content);
+          const marketKeywords = /(stock|market|trading|finance|economy|fed|inflation|recession|gdp|earnings|revenue|profit|loss|investment|portfolio|bull|bear|crypto|bitcoin|ethereum|rate|interest|bond|equity|sector|index|price|buy|sell|hold|call|put|option)/i;
+          const isMarketRelated = marketKeywords.test(content) || hasTicker;
+          
+          // High-impact accounts are always included if recent
+          const highImpactAccounts = [
+            'elonmusk', 'realDonaldTrump', 'DeItaone', 'Bloomberg', 'CNBC', 
+            'Reuters', 'WSJ', 'MarketWatch', 'FederalReserve', 'JimCramer',
+            'YahooFinance', 'business', 'FinancialTimes'
+          ];
+          const isHighImpactAccount = highImpactAccounts.some(acc => 
+            tweet.username?.toLowerCase().includes(acc.toLowerCase())
+          );
+          
+          return isRecent && (isMarketRelated || isHighImpactAccount);
+        });
+        
+        console.log(`[Market Sentiment] Filtered to ${recentMarketTweets.length} recent market-impactful tweets from ${tweets.length} total tweets`);
+
+        // Calculate recency score (more recent = higher score)
+        const getRecencyScore = (tweet: typeof tweets[0]) => {
+          if (!tweet.timestamp) return 0;
+          const ageInHours = (now - tweet.timestamp.getTime()) / (60 * 60 * 1000);
+          // Score: 100 for 0 hours old, decreasing to 0 for 6+ hours old
+          return Math.max(0, 100 - (ageInHours * 16.67));
+        };
+        
+        // Calculate impact score based on engagement and account type
+        const getImpactScore = (tweet: typeof tweets[0]) => {
+          const engagement = (tweet.likes || 0) + (tweet.retweets || 0);
+          const highImpactAccounts = [
+            'elonmusk', 'realDonaldTrump', 'DeItaone', 'Bloomberg', 'CNBC', 
+            'Reuters', 'WSJ', 'MarketWatch', 'FederalReserve', 'JimCramer'
+          ];
+          const isHighImpactAccount = highImpactAccounts.some(acc => 
+            tweet.username?.toLowerCase().includes(acc.toLowerCase())
+          );
+          
+          // Base score from engagement (normalized to 0-100)
+          const engagementScore = Math.min(100, Math.log10(engagement + 1) * 20);
+          
+          // Bonus for high-impact accounts
+          const accountBonus = isHighImpactAccount ? 30 : 0;
+          
+          // Impact level bonus
+          const impactBonus = tweet.impact === 'high' ? 20 : tweet.impact === 'medium' ? 10 : 0;
+          
+          return engagementScore + accountBonus + impactBonus;
+        };
+        
+        // Sort by combined score: 60% recency + 40% impact
+        const scoredTweets = recentMarketTweets.map(tweet => ({
+          tweet,
+          recencyScore: getRecencyScore(tweet),
+          impactScore: getImpactScore(tweet),
+          combinedScore: (getRecencyScore(tweet) * 0.6) + (getImpactScore(tweet) * 0.4)
+        }));
+        
+        // Group by username to ensure diversity
+        const tweetsByUser = new Map<string, typeof scoredTweets>();
+        scoredTweets.forEach(item => {
+          const username = item.tweet.username || 'unknown';
+          if (!tweetsByUser.has(username)) {
+            tweetsByUser.set(username, []);
           }
-          tweetsByUser.get(tweet.username)!.push(tweet);
+          tweetsByUser.get(username)!.push(item);
         });
 
-        // Take top 2-3 tweets from each account, then sort by engagement
-        const diverseTweets: typeof tweets = [];
+        // Take top 2-3 tweets from each account (sorted by combined score)
+        const diverseTweets: typeof scoredTweets = [];
         tweetsByUser.forEach((userTweets) => {
-          const sorted = [...userTweets].sort((a, b) => 
-            ((b.likes || 0) + (b.retweets || 0)) - ((a.likes || 0) + (a.retweets || 0))
-          );
-          // Take top 2-3 from each account
+          const sorted = [...userTweets].sort((a, b) => b.combinedScore - a.combinedScore);
           diverseTweets.push(...sorted.slice(0, 3));
         });
 
-        // Now sort all diverse tweets by engagement and take top 20
+        // Final sort by combined score and take top 20
         const trimmedTweets = diverseTweets
-          .sort((a, b) => ((b.likes || 0) + (b.retweets || 0)) - ((a.likes || 0) + (a.retweets || 0)))
-          .slice(0, 20) // Reduced from 25 to 20 for token efficiency
-          .map((tweet) => ({
-            id: tweet.id,
-            username: tweet.username,
-            content: tweet.content, // Removed displayName, timestamp for token savings
-            impact: tweet.impact,
-            likes: tweet.likes || 0,
-            retweets: tweet.retweets || 0,
-            mentionedStocks: (tweet.mentionedStocks || []).slice(0, 3), // Limit to 3 tickers
+          .sort((a, b) => b.combinedScore - a.combinedScore)
+          .slice(0, 20)
+          .map((item) => ({
+            id: item.tweet.id,
+            username: item.tweet.username,
+            content: item.tweet.content,
+            impact: item.tweet.impact,
+            likes: item.tweet.likes || 0,
+            retweets: item.tweet.retweets || 0,
+            mentionedStocks: (item.tweet.mentionedStocks || []).slice(0, 3),
+            timestamp: item.tweet.timestamp, // Include timestamp for recency context
           }));
 
         if (trimmedTweets.length === 0) {
@@ -1276,8 +1393,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // Initial run with slight delay to ensure tweets state is settled
     const timeoutId = setTimeout(() => runMarketAnalysis('initial'), 3000);
 
-    // Re-run every 5 minutes (increased from 3 to reduce load)
-    const intervalId = setInterval(() => runMarketAnalysis('interval'), 300000);
+    // Re-run every 3 minutes to capture recent market-moving tweets
+    // More frequent updates since we're focusing on recent tweets (last 6 hours)
+    const intervalId = setInterval(() => runMarketAnalysis('interval'), 180000);
 
     // Don't run on dependency change immediately - let the timeout handle it
     // This prevents multiple simultaneous calls

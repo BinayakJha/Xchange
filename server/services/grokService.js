@@ -451,7 +451,7 @@ export async function analyzeMarketFromTweets(tweets = [], context = {}) {
     };
   }
 
-  // Optimize: Reduce to top 20 most impactful tweets, truncate content
+  // Optimize: Reduce to top 20 most impactful RECENT tweets, truncate content
   const truncateContent = (content, maxLen = 180) => {
     if (!content || content.length <= maxLen) return content;
     const truncated = content.substring(0, maxLen);
@@ -459,10 +459,45 @@ export async function analyzeMarketFromTweets(tweets = [], context = {}) {
     return lastSpace > maxLen * 0.8 ? truncated.substring(0, lastSpace) + '...' : truncated + '...';
   };
 
-  // Sort by engagement and take top 20
-  const sortedTweets = [...tweets]
-    .sort((a, b) => ((b.likes || 0) + (b.retweets || 0)) - ((a.likes || 0) + (a.retweets || 0)))
-    .slice(0, 20);
+  // Filter to recent tweets (last 6 hours) and prioritize recency + impact
+  const now = Date.now();
+  const sixHoursAgo = now - (6 * 60 * 60 * 1000);
+  
+  const recentTweets = tweets.filter(tweet => {
+    // If tweet has timestamp, check if it's recent
+    if (tweet.timestamp) {
+      const tweetTime = new Date(tweet.timestamp).getTime();
+      return tweetTime >= sixHoursAgo;
+    }
+    // If no timestamp, assume it's recent (newly fetched)
+    return true;
+  });
+  
+  // Calculate combined score: recency (60%) + impact (40%)
+  const scoredTweets = recentTweets.map(tweet => {
+    const engagement = (tweet.likes || 0) + (tweet.retweets || 0);
+    
+    // Recency score (0-100)
+    let recencyScore = 100;
+    if (tweet.timestamp) {
+      const ageInHours = (now - new Date(tweet.timestamp).getTime()) / (60 * 60 * 1000);
+      recencyScore = Math.max(0, 100 - (ageInHours * 16.67)); // 0 hours = 100, 6 hours = 0
+    }
+    
+    // Impact score (0-100) based on engagement
+    const impactScore = Math.min(100, Math.log10(engagement + 1) * 20);
+    
+    // Combined score
+    const combinedScore = (recencyScore * 0.6) + (impactScore * 0.4);
+    
+    return { tweet, combinedScore };
+  });
+  
+  // Sort by combined score and take top 20
+  const sortedTweets = scoredTweets
+    .sort((a, b) => b.combinedScore - a.combinedScore)
+    .slice(0, 20)
+    .map(item => item.tweet);
 
   const trimmedTweets = sortedTweets.map((tweet) => ({
     i: String(tweet.id || '').substring(0, 50), // Shortened field
@@ -486,7 +521,13 @@ export async function analyzeMarketFromTweets(tweets = [], context = {}) {
     new Set(trimmedTweets.map(t => t.u).filter(Boolean))
   );
 
-  const prompt = `Market analysis from tweets. Watchlist: ${watchlistTickers.join(',') || 'none'}. Positions: ${openPositions.length || 0}
+  const prompt = `Market analysis from RECENT tweets (last 6 hours) that could impact markets. Watchlist: ${watchlistTickers.join(',') || 'none'}. Positions: ${openPositions.length || 0}
+
+CRITICAL: These are the MOST RECENT market-impactful tweets. Prioritize:
+1. Breaking news and announcements from the last few hours
+2. Recent market-moving statements from high-impact accounts
+3. Latest earnings, policy changes, or market events
+4. Real-time market sentiment shifts
 
 Tweets from multiple accounts: ${JSON.stringify(trimmedTweets)}
 
@@ -495,6 +536,8 @@ IMPORTANT: Analyze tweets from ALL accounts shown (usernames: ${uniqueUsernames.
 - Market influencers (elonmusk, realDonaldTrump, JimCramer)
 - Financial institutions (FederalReserve)
 - Market analysts (DeItaone)
+
+Focus on what these RECENT tweets indicate about CURRENT market conditions and potential near-term impacts.
 
 Return JSON:
 {
@@ -715,6 +758,20 @@ export async function getTweetsFromUsers(stockInput, usernames = [], count = 10)
 
 Priority: elonmusk, realDonaldTrump, DeItaone, Bloomberg, CNBC, Reuters, WSJ, MarketWatch, FederalReserve, JimCramer. Include ALL DeItaone tweets.
 
+CRITICAL FILTERING RULES - ONLY INCLUDE TWEETS THAT:
+1. Directly mention "${stockInput}" OR specific stock/crypto tickers (e.g., $AAPL, $BTC, $TSLA)
+2. Are from verified financial/news accounts discussing market-moving events
+3. Contain financial keywords: stock, market, trading, earnings, revenue, price, buy, sell, crypto, bitcoin, ethereum, fed, inflation, recession, GDP, interest rate, bond, equity
+4. Have HIGH engagement (5000+ likes/retweets) OR are from high-impact accounts (elonmusk, realDonaldTrump, FederalReserve, major news)
+5. Could actually move markets (announcements, earnings, policy changes, major news)
+
+EXCLUDE:
+- Personal opinions without market context
+- General news unrelated to stocks/crypto/finance
+- Low engagement tweets (< 1000) unless from verified high-impact accounts
+- Entertainment, sports, politics (unless directly affecting markets)
+- Generic social media chatter
+
 Return JSON:
 {
   "tweets": [
@@ -735,9 +792,9 @@ Return JSON:
 
 Rules:
 - Only REAL tweets from last 24h
-- Include: mentions "${stockInput}" OR market-moving accounts OR breaking news
-- High engagement preferred (1000+)
-- Mix bullish/bearish/neutral
+- ONLY include tweets that could impact stock/crypto markets
+- High engagement preferred (5000+ for general, 1000+ for verified accounts)
+- impact: "high" for verified accounts with 10k+ engagement, "medium" for 1k-10k, "low" only if from verified account
 - relevance: "direct" if mentions "${stockInput}", "market_impact" for influencers, "news" for news sources
 - Return ONLY valid JSON.`;
 
@@ -785,6 +842,20 @@ export async function getRelevantTweets(stockInput, count = 10) {
 
 Priority: elonmusk, realDonaldTrump, DeItaone, Bloomberg, CNBC, Reuters, WSJ, MarketWatch, FederalReserve, JimCramer. Include ALL DeItaone tweets.
 
+CRITICAL FILTERING RULES - ONLY INCLUDE TWEETS THAT:
+1. Directly mention "${stockInput}" OR specific stock/crypto tickers (e.g., $AAPL, $BTC, $TSLA)
+2. Are from verified financial/news accounts discussing market-moving events
+3. Contain financial keywords: stock, market, trading, earnings, revenue, price, buy, sell, crypto, bitcoin, ethereum, fed, inflation, recession, GDP, interest rate, bond, equity
+4. Have HIGH engagement (5000+ likes/retweets) OR are from high-impact accounts (elonmusk, realDonaldTrump, FederalReserve, major news)
+5. Could actually move markets (announcements, earnings, policy changes, major news)
+
+EXCLUDE:
+- Personal opinions without market context
+- General news unrelated to stocks/crypto/finance
+- Low engagement tweets (< 1000) unless from verified high-impact accounts
+- Entertainment, sports, politics (unless directly affecting markets)
+- Generic social media chatter
+
 Return JSON:
 {
   "tweets": [
@@ -805,9 +876,9 @@ Return JSON:
 
 Rules:
 - Only REAL tweets from last 24h
-- Include: mentions "${stockInput}" OR market-moving accounts OR breaking news
-- High engagement preferred (1000+)
-- Mix bullish/bearish/neutral
+- ONLY include tweets that could impact stock/crypto markets
+- High engagement preferred (5000+ for general, 1000+ for verified accounts)
+- impact: "high" for verified accounts with 10k+ engagement, "medium" for 1k-10k, "low" only if from verified account
 - relevance: "direct" if mentions "${stockInput}", "market_impact" for influencers, "news" for news sources
 - Return ONLY valid JSON.`;
 

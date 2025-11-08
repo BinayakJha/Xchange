@@ -7,25 +7,140 @@ const GROK_API_KEY = process.env.GROK_API_KEY;
 const API_URL = "https://api.x.ai/v1/chat/completions";
 
 /**
+ * Map cryptocurrency names to their ticker symbols
+ */
+function normalizeCryptoTicker(name) {
+	if (!name) return null;
+	
+	const upperName = name.toUpperCase().trim();
+	
+	// Direct ticker mappings (already in correct format)
+	if (upperName.match(/^[A-Z]{1,5}(-USD)?$/)) {
+		// If it already looks like a ticker, ensure it has -USD for crypto
+		if (upperName.includes('-USD')) {
+			return upperName;
+		}
+		// Check if it's a known crypto ticker without -USD
+		const cryptoMap = {
+			'BTC': 'BTC-USD',
+			'ETH': 'ETH-USD',
+			'BNB': 'BNB-USD',
+			'SOL': 'SOL-USD',
+			'ADA': 'ADA-USD',
+			'XRP': 'XRP-USD',
+			'DOGE': 'DOGE-USD',
+			'DOT': 'DOT-USD',
+			'MATIC': 'MATIC-USD',
+			'AVAX': 'AVAX-USD',
+		};
+		if (cryptoMap[upperName]) {
+			return cryptoMap[upperName];
+		}
+		// Otherwise assume it's a stock ticker
+		return upperName;
+	}
+	
+	// Cryptocurrency name mappings (including common misspellings)
+	const cryptoNameMap = {
+		// Bitcoin
+		'BITCOIN': 'BTC-USD',
+		'BTC': 'BTC-USD',
+		
+		// Ethereum (including misspellings)
+		'ETHEREUM': 'ETH-USD',
+		'ETHERUM': 'ETH-USD',
+		'ETH': 'ETH-USD',
+		
+		// Other popular cryptos
+		'BINANCE COIN': 'BNB-USD',
+		'BNB': 'BNB-USD',
+		'SOLANA': 'SOL-USD',
+		'SOL': 'SOL-USD',
+		'CARDANO': 'ADA-USD',
+		'ADA': 'ADA-USD',
+		'RIPPLE': 'XRP-USD',
+		'XRP': 'XRP-USD',
+		'DOGECOIN': 'DOGE-USD',
+		'DOGE': 'DOGE-USD',
+		'POLKADOT': 'DOT-USD',
+		'DOT': 'DOT-USD',
+		'POLYGON': 'MATIC-USD',
+		'MATIC': 'MATIC-USD',
+		'AVALANCHE': 'AVAX-USD',
+		'AVAX': 'AVAX-USD',
+		'LITECOIN': 'LTC-USD',
+		'LTC': 'LTC-USD',
+		'CHAINLINK': 'LINK-USD',
+		'LINK': 'LINK-USD',
+		'UNISWAP': 'UNI-USD',
+		'UNI': 'UNI-USD',
+	};
+	
+	// Try exact match first
+	if (cryptoNameMap[upperName]) {
+		return cryptoNameMap[upperName];
+	}
+	
+	// Try partial matching for common patterns
+	for (const [key, value] of Object.entries(cryptoNameMap)) {
+		if (upperName.includes(key) || key.includes(upperName)) {
+			return value;
+		}
+	}
+	
+	// Try fuzzy matching for common misspellings (starts with)
+	if (upperName.startsWith('ETHER')) {
+		return 'ETH-USD';
+	}
+	if (upperName.startsWith('BITCOIN') || upperName.startsWith('BIT')) {
+		return 'BTC-USD';
+	}
+	
+	return null;
+}
+
+/**
+ * Extract and normalize ticker from text
+ */
+function extractTicker(text) {
+	if (!text) return null;
+	
+	const trimmed = text.trim();
+	
+	// First try to normalize as crypto
+	const normalized = normalizeCryptoTicker(trimmed);
+	if (normalized) {
+		return normalized;
+	}
+	
+	// If it looks like a ticker symbol, return uppercase
+	if (trimmed.match(/^[A-Z]{1,5}(-USD)?$/i)) {
+		return trimmed.toUpperCase();
+	}
+	
+	return null;
+}
+
+/**
  * Parse trade command from user message
  * Returns trade action if detected, null otherwise
  */
 function parseTradeCommand(message, watchlist, positions) {
 	const upperMessage = message.toUpperCase();
 
-	// Patterns for buying
+	// Patterns for buying - updated to capture longer names and crypto names
 	const buyPatterns = [
-		/BUY\s+\$?(\d+(?:\.\d+)?)\s+WORTH\s+OF\s+([A-Z]{1,5}(?:-USD)?)/i,
-		/BUY\s+(\d+(?:\.\d+)?)\s+SHARES?\s+OF\s+([A-Z]{1,5}(?:-USD)?)/i,
-		/BUY\s+\$?(\d+(?:\.\d+)?)\s+([A-Z]{1,5}(?:-USD)?)/i,
-		/PURCHASE\s+(\d+(?:\.\d+)?)\s+([A-Z]{1,5}(?:-USD)?)/i,
+		/BUY\s+\$?(\d+(?:\.\d+)?)\s+WORTH\s+OF\s+([A-Za-z]+(?:-USD)?)\b/i,
+		/BUY\s+(\d+(?:\.\d+)?)\s+SHARES?\s+OF\s+([A-Za-z]+(?:-USD)?)\b/i,
+		/BUY\s+\$?(\d+(?:\.\d+)?)\s+([A-Za-z]+(?:-USD)?)\b/i,
+		/PURCHASE\s+(\d+(?:\.\d+)?)\s+([A-Za-z]+(?:-USD)?)\b/i,
 	];
 
-	// Patterns for selling
+	// Patterns for selling - updated to capture longer names and crypto names
 	const sellPatterns = [
-		/SELL\s+(\d+(?:\.\d+)?)\s+SHARES?\s+OF\s+([A-Z]{1,5}(?:-USD)?)/i,
-		/SELL\s+(\d+(?:\.\d+)?)\s+([A-Z]{1,5}(?:-USD)?)/i,
-		/CLOSE\s+(\d+(?:\.\d+)?)\s+([A-Z]{1,5}(?:-USD)?)/i,
+		/SELL\s+(\d+(?:\.\d+)?)\s+SHARES?\s+OF\s+([A-Za-z]+(?:-USD)?)\b/i,
+		/SELL\s+(\d+(?:\.\d+)?)\s+([A-Za-z]+(?:-USD)?)\b/i,
+		/CLOSE\s+(\d+(?:\.\d+)?)\s+([A-Za-z]+(?:-USD)?)\b/i,
 	];
 
 	// Check for buy commands
@@ -33,7 +148,10 @@ function parseTradeCommand(message, watchlist, positions) {
 		const match = message.match(pattern);
 		if (match) {
 			const amount = parseFloat(match[1]);
-			const ticker = match[2].toUpperCase();
+			const rawTicker = match[2];
+			
+			// Normalize the ticker (handles crypto names like "ethereum", "etherum", etc.)
+			const ticker = normalizeCryptoTicker(rawTicker) || rawTicker.toUpperCase();
 
 			// If it's "$X worth", we need to get current price to calculate quantity
 			// For now, assume $X = quantity (will be refined by AI)
@@ -52,7 +170,11 @@ function parseTradeCommand(message, watchlist, positions) {
 		const match = message.match(pattern);
 		if (match) {
 			const quantity = parseFloat(match[1]);
-			const ticker = match[2].toUpperCase();
+			const rawTicker = match[2];
+			
+			// Normalize the ticker (handles crypto names like "ethereum", "etherum", etc.)
+			const ticker = normalizeCryptoTicker(rawTicker) || rawTicker.toUpperCase();
+			
 			return {
 				action: "sell",
 				ticker,
@@ -87,6 +209,182 @@ function detectDiversificationRequest(message) {
 	return diversificationKeywords.some((keyword) =>
 		upperMessage.includes(keyword)
 	);
+}
+
+/**
+ * Detect if user wants a sector heatmap
+ */
+function detectSectorHeatmapRequest(message) {
+	const upperMessage = message.toUpperCase();
+	const heatmapKeywords = [
+		"HEATMAP",
+		"HEAT MAP",
+		"SHOW ME",
+		"VISUALIZE",
+		"MAP OF",
+	];
+	
+	const sectorKeywords = [
+		"TECHNOLOGY", "TECH",
+		"HEALTHCARE", "HEALTH",
+		"FINANCIAL", "FINANCE", "BANKING",
+		"ENERGY",
+		"CONSUMER", "RETAIL",
+		"INDUSTRIAL",
+		"COMMUNICATION", "TELECOMMUNICATION",
+		"UTILITIES",
+		"REAL ESTATE",
+		"MATERIALS",
+		"CRYPTO", "CRYPTOCURRENCY", "CRYPTOCURRENCIES",
+		"LAYER 1", "L1", "LAYER1",
+		"LAYER 2", "L2", "LAYER2",
+		"DEFI", "DECENTRALIZED FINANCE",
+		"MEME", "MEMECOIN", "MEME COIN",
+		"STABLECOIN", "STABLE COIN",
+		"EXCHANGE", "CEX", "DEX",
+		"SECTOR",
+	];
+	
+	const hasHeatmapKeyword = heatmapKeywords.some(keyword => upperMessage.includes(keyword));
+	const hasSectorKeyword = sectorKeywords.some(keyword => upperMessage.includes(keyword));
+	
+	return hasHeatmapKeyword && hasSectorKeyword;
+}
+
+/**
+ * Extract sector name from message
+ */
+function extractSectorName(message) {
+	const upperMessage = message.toUpperCase();
+	
+	const sectorMap = {
+		// Stock sectors
+		"TECHNOLOGY": "Technology",
+		"TECH": "Technology",
+		"HEALTHCARE": "Healthcare",
+		"HEALTH": "Healthcare",
+		"FINANCIAL": "Financial",
+		"FINANCE": "Financial",
+		"BANKING": "Financial",
+		"ENERGY": "Energy",
+		"CONSUMER": "Consumer",
+		"RETAIL": "Consumer",
+		"INDUSTRIAL": "Industrial",
+		"COMMUNICATION": "Communication",
+		"TELECOMMUNICATION": "Communication",
+		"UTILITIES": "Utilities",
+		"REAL ESTATE": "Real Estate",
+		"MATERIALS": "Materials",
+		// Crypto sectors
+		"CRYPTO": "Crypto",
+		"CRYPTOCURRENCY": "Crypto",
+		"CRYPTOCURRENCIES": "Crypto",
+		"LAYER 1": "Layer 1",
+		"L1": "Layer 1",
+		"LAYER1": "Layer 1",
+		"LAYER 2": "Layer 2",
+		"L2": "Layer 2",
+		"LAYER2": "Layer 2",
+		"DEFI": "DeFi",
+		"DECENTRALIZED FINANCE": "DeFi",
+		"MEME": "Meme Coins",
+		"MEMECOIN": "Meme Coins",
+		"MEME COIN": "Meme Coins",
+		"STABLECOIN": "Stablecoins",
+		"STABLE COIN": "Stablecoins",
+		"EXCHANGE": "Exchange Tokens",
+		"CEX": "Exchange Tokens",
+		"DEX": "Exchange Tokens",
+	};
+	
+	// Try to find sector in message
+	for (const [key, value] of Object.entries(sectorMap)) {
+		if (upperMessage.includes(key)) {
+			return value;
+		}
+	}
+	
+	return null;
+}
+
+/**
+ * Get stocks for a sector (supports both stocks and crypto)
+ */
+async function getSectorStocks(sectorName) {
+	// Stock sector mappings
+	const stockSectors = {
+		"Technology": ["AAPL", "MSFT", "GOOGL", "META", "NVDA", "AMD", "INTC", "CRM", "ORCL", "ADBE"],
+		"Healthcare": ["JNJ", "UNH", "PFE", "ABBV", "TMO", "ABT", "DHR", "BMY", "AMGN", "GILD"],
+		"Financial": ["JPM", "BAC", "WFC", "GS", "MS", "C", "BLK", "SCHW", "AXP", "COF"],
+		"Energy": ["XOM", "CVX", "SLB", "EOG", "COP", "MPC", "VLO", "PSX", "HAL", "FANG"],
+		"Consumer": ["AMZN", "WMT", "HD", "MCD", "NKE", "SBUX", "TGT", "LOW", "TJX", "COST"],
+		"Industrial": ["BA", "CAT", "GE", "HON", "RTX", "LMT", "DE", "EMR", "ETN", "ITW"],
+		"Communication": ["GOOGL", "META", "NFLX", "DIS", "CMCSA", "VZ", "T", "CHTR", "EA", "TTWO"],
+		"Utilities": ["NEE", "DUK", "SO", "AEP", "SRE", "EXC", "XEL", "WEC", "ES", "PEG"],
+		"Real Estate": ["AMT", "PLD", "EQIX", "PSA", "WELL", "SPG", "O", "DLR", "AVB", "EQR"],
+		"Materials": ["LIN", "APD", "ECL", "SHW", "PPG", "DD", "FCX", "NEM", "VMC", "MLM"],
+	};
+	
+	// Crypto sector mappings (tickers with -USD suffix for Yahoo Finance)
+	const cryptoSectors = {
+		"Crypto": ["BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD", "ADA-USD", "XRP-USD", "DOGE-USD", "MATIC-USD", "AVAX-USD", "DOT-USD"],
+		"Layer 1": ["BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD", "ADA-USD", "AVAX-USD", "DOT-USD", "ATOM-USD", "ALGO-USD", "NEAR-USD"],
+		"Layer 2": ["MATIC-USD", "ARB-USD", "OP-USD", "LRC-USD", "IMX-USD", "METIS-USD", "BOBA-USD", "ZKS-USD", "MAGIC-USD", "DYDX-USD"],
+		"DeFi": ["UNI-USD", "AAVE-USD", "LINK-USD", "MKR-USD", "SNX-USD", "COMP-USD", "CRV-USD", "SUSHI-USD", "1INCH-USD", "YFI-USD"],
+		"Meme Coins": ["DOGE-USD", "SHIB-USD", "PEPE-USD", "FLOKI-USD", "BONK-USD", "WIF-USD", "BABYDOGE-USD", "ELON-USD", "FLOKI-USD", "MEME-USD"],
+		"Stablecoins": ["USDT-USD", "USDC-USD", "DAI-USD", "BUSD-USD", "TUSD-USD", "USDP-USD", "GUSD-USD", "HUSD-USD", "USDN-USD", "FRAX-USD"],
+		"Exchange Tokens": ["BNB-USD", "FTT-USD", "HT-USD", "OKB-USD", "KCS-USD", "CRO-USD", "GT-USD", "MX-USD", "ZB-USD", "LEO-USD"],
+	};
+	
+	// Determine if it's a crypto or stock sector
+	const isCrypto = cryptoSectors.hasOwnProperty(sectorName);
+	const tickers = isCrypto ? (cryptoSectors[sectorName] || []) : (stockSectors[sectorName] || []);
+	
+	if (tickers.length === 0) {
+		return [];
+	}
+	
+	// Fetch prices for all assets in the sector
+	const stocks = [];
+	for (const ticker of tickers) {
+		try {
+			const response = await fetch(
+				`http://localhost:${process.env.PORT || 3001}/api/yahoo/quote/${ticker}`
+			);
+			if (response.ok) {
+				const data = await response.json();
+				const result = data.chart?.result?.[0];
+				const meta = result?.meta;
+				
+				if (meta && meta.regularMarketPrice) {
+					const price = meta.regularMarketPrice;
+					const previousClose = meta.previousClose || meta.previousClosePrice;
+					
+					// Use Yahoo Finance's provided change values if available, otherwise calculate
+					const change = meta.regularMarketChange ?? (previousClose ? (price - previousClose) : 0);
+					const changePercent = meta.regularMarketChangePercent ?? 
+						(previousClose ? ((price - previousClose) / previousClose) * 100 : 0);
+					
+					// Add if we have valid price (change can be 0, that's valid data)
+					if (price > 0) {
+						stocks.push({
+							ticker: ticker,
+							name: meta.shortName || meta.longName || meta.displayName || ticker.replace('-USD', ''),
+							price: price,
+							change: change || 0,
+							changePercent: changePercent || 0,
+							type: isCrypto ? "crypto" : "stock",
+						});
+					}
+				}
+			}
+		} catch (error) {
+			console.warn(`[Chat] Could not fetch data for ${ticker}:`, error.message);
+			// Skip this ticker if we can't fetch data
+		}
+	}
+	
+	return stocks;
 }
 
 /**
@@ -283,6 +581,22 @@ export async function chatWithAI(message, context = {}) {
 	// Check if user wants portfolio diversification
 	const wantsDiversification = detectDiversificationRequest(message);
 
+	// Check if user wants a sector heatmap
+	const wantsHeatmap = detectSectorHeatmapRequest(message);
+	const sectorName = wantsHeatmap ? extractSectorName(message) : null;
+	let heatmapData = null;
+	
+	if (wantsHeatmap && sectorName) {
+		console.log(`[Chat] User requested heatmap for ${sectorName} sector`);
+		const sectorStocks = await getSectorStocks(sectorName);
+		if (sectorStocks.length > 0) {
+			heatmapData = {
+				sector: sectorName,
+				stocks: sectorStocks,
+			};
+		}
+	}
+
 	// Check if user wants to execute a trade
 	const tradeCommand = parseTradeCommand(message, watchlist, positions);
 
@@ -301,14 +615,33 @@ export async function chatWithAI(message, context = {}) {
 	}
 	
 	// Extract tickers from message (simple pattern matching)
-	const tickerMatches = message.match(/\$?([A-Z]{1,5}(?:-USD)?)/g);
+	// First try standard ticker patterns
+	const tickerMatches = message.match(/\$?([A-Z]{1,5}(?:-USD)?)/gi);
 	if (tickerMatches) {
 		tickerMatches.forEach(match => {
-			const ticker = match.replace('$', '').toUpperCase();
-			if (ticker.length >= 1 && ticker.length <= 5) {
-				allTickers.add(ticker);
+			const rawTicker = match.replace('$', '').replace(/^[^A-Za-z]*/, '');
+			const normalized = normalizeCryptoTicker(rawTicker) || rawTicker.toUpperCase();
+			if (normalized) {
+				allTickers.add(normalized);
 			}
 		});
+	}
+	
+	// Also try to extract cryptocurrency names from the message
+	const cryptoNamePatterns = [
+		/\b(bitcoin|ethereum|etherum|solana|cardano|ripple|dogecoin|polkadot|polygon|avalanche|litecoin|chainlink|uniswap|binance\s+coin)\b/gi
+	];
+	
+	for (const pattern of cryptoNamePatterns) {
+		const matches = message.match(pattern);
+		if (matches) {
+			matches.forEach(match => {
+				const normalized = normalizeCryptoTicker(match);
+				if (normalized) {
+					allTickers.add(normalized);
+				}
+			});
+		}
 	}
 	
 	const currentPrices = await getCurrentPrices(Array.from(allTickers));
@@ -400,6 +733,11 @@ IMPORTANT: Always use the CURRENT MARKET PRICES listed above when executing trad
 				prompt += `\nThe user wants to SELL ${ticker}, but current market price is not available. Do NOT execute the trade. Inform the user that the price could not be fetched.`;
 			}
 		}
+	}
+
+	// If heatmap was requested, add instruction
+	if (wantsHeatmap && heatmapData) {
+		prompt += `\n\nThe user requested a heatmap for the ${sectorName} sector. I've fetched the stock data. In your response, acknowledge that you're showing the heatmap and provide brief insights about the sector's performance.`;
 	}
 
 	prompt += `\n\nReturn JSON:
@@ -581,6 +919,11 @@ If executing trades:
 				parsed.tradeActions = null;
 				parsed.response = (parsed.response || '') + `\n\n⚠️ Cannot execute trades: Unable to fetch current market prices. Please try again.`;
 			}
+		}
+
+		// Add heatmap data if available
+		if (heatmapData) {
+			parsed.heatmap = heatmapData;
 		}
 
 		return parsed;

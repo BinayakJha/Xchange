@@ -94,6 +94,13 @@
   color: white;
 }
 
+.heatmap-container {
+  margin-top: 12px;
+  margin-bottom: 8px;
+  width: 100%;
+  max-width: 100%;
+}
+
 .trade-executed-badge {
   display: inline-flex;
   align-items: center;

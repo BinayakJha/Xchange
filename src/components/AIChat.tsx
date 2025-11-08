@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import SectorHeatmap from './SectorHeatmap';
+import { Stock } from '../types';
 import './AIChat.css';
 
 interface Message {
@@ -14,6 +16,10 @@ interface Message {
     price: number;
     total: number;
   };
+  heatmap?: {
+    sector: string;
+    stocks: Stock[];
+  };
 }
 
 const AIChat: React.FC = () => {
@@ -22,7 +28,7 @@ const AIChat: React.FC = () => {
     {
       id: '1',
       role: 'assistant',
-      content: "Hi! I'm your AI trading assistant. I can help you analyze stocks, execute paper trades, and answer questions about the market. Try saying things like:\n\n• 'Buy $1000 worth of AAPL'\n• 'What's the sentiment on TSLA?'\n• 'Show me my positions'\n• 'Sell 10 shares of NVDA'\n\nHow can I help you today?",
+      content: "Hi! I'm your AI trading assistant. I can help you analyze stocks, execute paper trades, and answer questions about the market. Try saying things like:\n\n• 'Buy $1000 worth of AAPL'\n• 'What's the sentiment on TSLA?'\n• 'Show me my positions'\n• 'Sell 10 shares of NVDA'\n• 'Show me a heatmap of the technology sector'\n• 'Show me a heatmap of crypto'\n• 'Visualize the DeFi sector'\n\nHow can I help you today?",
       timestamp: new Date(),
     },
   ]);
@@ -169,6 +175,11 @@ const AIChat: React.FC = () => {
         timestamp: new Date(),
       };
 
+      // Add heatmap data if available
+      if (data.heatmap) {
+        assistantMessage.heatmap = data.heatmap;
+      }
+
       // Check if AI wants to execute multiple trades (diversification)
       if (data.tradeActions && Array.isArray(data.tradeActions)) {
         const executedTrades: Array<{ ticker: string; action: 'buy' | 'sell'; quantity: number; price: number; total: number }> = [];
@@ -289,6 +300,11 @@ const AIChat: React.FC = () => {
             </div>
             <div className="message-content">
               <div className="message-text">{message.content}</div>
+              {message.heatmap && (
+                <div className="heatmap-container">
+                  <SectorHeatmap sector={message.heatmap.sector} stocks={message.heatmap.stocks} />
+                </div>
+              )}
               {message.tradeExecuted && (
                 <div className="trade-executed-badge">
                   <span className="trade-icon">💰</span>

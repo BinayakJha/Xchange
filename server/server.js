@@ -418,6 +418,7 @@ app.post("/api/chat", async (req, res) => {
 			response: result.response || "I apologize, but I encountered an error.",
 			tradeAction: result.tradeAction || null,
 			tradeActions: result.tradeActions || null, // Multiple trades for diversification
+			heatmap: result.heatmap || null, // Sector heatmap data
 		});
 	} catch (error) {
 		console.error("Error in chat endpoint:", error);
