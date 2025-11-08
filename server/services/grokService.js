@@ -481,22 +481,33 @@ export async function analyzeMarketFromTweets(tweets = [], context = {}) {
       }))
     : [];
 
+  // Extract unique usernames from tweets for sourceAccounts
+  const uniqueUsernames = Array.from(
+    new Set(trimmedTweets.map(t => t.u).filter(Boolean))
+  );
+
   const prompt = `Market analysis from tweets. Watchlist: ${watchlistTickers.join(',') || 'none'}. Positions: ${openPositions.length || 0}
 
-Tweets: ${JSON.stringify(trimmedTweets)}
+Tweets from multiple accounts: ${JSON.stringify(trimmedTweets)}
+
+IMPORTANT: Analyze tweets from ALL accounts shown (usernames: ${uniqueUsernames.join(', ')}). Do NOT focus on just one account. Consider perspectives from:
+- News sources (Bloomberg, CNBC, Reuters, WSJ)
+- Market influencers (elonmusk, realDonaldTrump, JimCramer)
+- Financial institutions (FederalReserve)
+- Market analysts (DeItaone)
 
 Return JSON:
 {
   "sentiment": {"overall": "bullish|bearish|neutral", "bullish": 0-100, "bearish": 0-100, "neutral": 0-100},
   "summary": "max 200 chars",
   "keyDrivers": ["phrase1", "phrase2", "phrase3"],
-  "sourceAccounts": ["u1", "u2"],
+  "sourceAccounts": [${uniqueUsernames.map(u => `"${u}"`).join(', ')}],
   "topInsights": [{"tweetId": "i value", "username": "u value", "direction": "bullish|bearish|neutral", "summary": "max 100 chars"}],
   "stockSuggestions": [{"id": "s1", "ticker": "AAPL", "action": "buy|sell|hold", "timeframe": "intraday|swing|long_term", "confidence": 0-100, "reason": "brief", "supportingTweetIds": ["i1"]}],
   "optionSuggestions": [{"id": "o1", "ticker": "TSLA", "action": "buy|sell", "strategy": "long_call|long_put|call_spread|put_spread", "optionType": "call|put", "strike": num, "expiration": "YYYY-MM-DD", "confidence": 0-100, "reason": "brief", "targetPrice": num, "premiumEstimate": num, "supportingTweetIds": ["i1"]}]
 }
 
-Use "i" as tweetId. Base on tweets only. Keep text concise.`;
+Use "i" as tweetId. Include insights from MULTIPLE accounts in topInsights. Base on tweets only. Keep text concise.`;
 
   const headers = {
     Authorization: `Bearer ${GROK_API_KEY}`,
@@ -560,9 +571,10 @@ Use "i" as tweetId. Base on tweets only. Keep text concise.`;
       });
     }
 
-    const uniqueAccounts = Array.from(
-      new Set(sortedTweets.map((tweet) => tweet.username))
-    );
+    // Use the unique usernames we already extracted, or fallback to extracting from sorted tweets
+    const uniqueAccounts = uniqueUsernames.length > 0 
+      ? uniqueUsernames 
+      : Array.from(new Set(sortedTweets.map((tweet) => tweet.username).filter(Boolean)));
 
     const sanitizePercent = (value, fallback) => {
       const num = Number(value);

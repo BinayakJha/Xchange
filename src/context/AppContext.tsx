@@ -1055,8 +1055,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       lastMarketAnalysisRef.current = now;
 
       try {
-        // Optimize: Sort by engagement, take top 20, remove unnecessary fields
-        const trimmedTweets = [...tweets]
+        // Optimize: Ensure diversity across accounts, then sort by engagement
+        // Group tweets by username to ensure we get tweets from multiple accounts
+        const tweetsByUser = new Map<string, typeof tweets>();
+        tweets.forEach(tweet => {
+          if (!tweet.username) return;
+          if (!tweetsByUser.has(tweet.username)) {
+            tweetsByUser.set(tweet.username, []);
+          }
+          tweetsByUser.get(tweet.username)!.push(tweet);
+        });
+
+        // Take top 2-3 tweets from each account, then sort by engagement
+        const diverseTweets: typeof tweets = [];
+        tweetsByUser.forEach((userTweets) => {
+          const sorted = [...userTweets].sort((a, b) => 
+            ((b.likes || 0) + (b.retweets || 0)) - ((a.likes || 0) + (a.retweets || 0))
+          );
+          // Take top 2-3 from each account
+          diverseTweets.push(...sorted.slice(0, 3));
+        });
+
+        // Now sort all diverse tweets by engagement and take top 20
+        const trimmedTweets = diverseTweets
           .sort((a, b) => ((b.likes || 0) + (b.retweets || 0)) - ((a.likes || 0) + (a.retweets || 0)))
           .slice(0, 20) // Reduced from 25 to 20 for token efficiency
           .map((tweet) => ({

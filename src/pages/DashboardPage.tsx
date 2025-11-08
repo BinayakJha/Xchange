@@ -4,10 +4,11 @@ import Feed from '../components/Feed';
 import SentimentSidebar from '../components/SentimentSidebar';
 import UnusualFlowFeed from '../components/UnusualFlowFeed';
 import Papertrade from '../components/Papertrade';
+import AIChat from '../components/AIChat';
 import './DashboardPage.css';
 
 const DashboardPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'feed' | 'unusual-flow' | 'papertrade'>('feed');
+  const [activeTab, setActiveTab] = useState<'feed' | 'unusual-flow' | 'papertrade' | 'ai-chat'>('feed');
 
   return (
     <div className="dashboard-page">
@@ -38,11 +39,18 @@ const DashboardPage: React.FC = () => {
               >
                 Papertrade
               </button>
+              <button
+                className={`tab-button ${activeTab === 'ai-chat' ? 'active' : ''}`}
+                onClick={() => setActiveTab('ai-chat')}
+              >
+                AI Chat
+              </button>
             </div>
 
             {activeTab === 'feed' && <Feed />}
             {activeTab === 'unusual-flow' && <UnusualFlowFeed />}
             {activeTab === 'papertrade' && <Papertrade />}
+            {activeTab === 'ai-chat' && <AIChat />}
           </main>
         </div>
       </div>
