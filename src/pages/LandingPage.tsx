@@ -120,37 +120,36 @@ const LandingPage: React.FC = () => {
   return (
     <div className="landing-page">
       <div className="landing-container">
+        {/* Left Section - Large X Logo */}
         <div className="landing-left">
-
-          <div className="landing-logo">
-          <svg viewBox="0 0 24 24" className="logo-icon">
-            <g>
-              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" fill="currentColor" />
-            </g>
-          </svg>
-          <span>Change</span>
+          <div className="x-logo-large">
+            <div className="x-logo-container">
+              {/* X Logo - Official X (Twitter) Logo */}
+              <svg viewBox="0 0 24 24" className="x-logo-outlined">
+                <g>
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" fill="currentColor" />
+                </g>
+              </svg>
+              <div className="x-text-content">
+                <h1 className="x-change-title">CHANGE</h1>
+                <div className="x-tagline">
+                  <div>WHERE MARKET CHATTER BECOMES</div>
+                  <div>MARKET INSIGHT.</div>
+                </div>
+              </div>
+            </div>
           </div>
-
-          <h1 className="landing-title">Happening now</h1>
-          <h2 className="landing-subtitle">Join XChange today.</h2>
         </div>
 
+        {/* Right Section - Form Content */}
         <div className="landing-right">
-          <div className="landing-card">
-            <h2 className="card-title">
-              {isSignup ? 'Create your account' : 'Welcome back'}
-            </h2>
-            
+          <div className="landing-content-wrapper">
+            <h1 className="landing-header">Happening now</h1>
+            <h2 className="landing-subheader">Join today.</h2>
+
             <form onSubmit={handleSubmit} className="auth-form">
               {error && (
-                <div className="error-message" style={{ 
-                  color: '#ef4444', 
-                  fontSize: '14px', 
-                  marginBottom: '16px',
-                  padding: '8px',
-                  backgroundColor: '#fee2e2',
-                  borderRadius: '4px'
-                }}>
+                <div className="error-message">
                   {error}
                 </div>
               )}
@@ -189,8 +188,15 @@ const LandingPage: React.FC = () => {
               </button>
             </form>
 
+            <p className="legal-text">
+              By signing up, you agree to the{' '}
+              <a href="#" className="legal-link">Terms of Service</a> and{' '}
+              <a href="#" className="legal-link">Privacy Policy</a>, including{' '}
+              <a href="#" className="legal-link">Cookie Use</a>.
+            </p>
+
             <div className="auth-switch">
-              <p>
+              <p className="auth-switch-text">
                 {isSignup ? 'Already have an account?' : "Don't have an account?"}
               </p>
               <button
