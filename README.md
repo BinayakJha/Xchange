@@ -1,4 +1,4 @@
-# 🚀 XChange - AI-Powered Trading Platform
+# 🚀 XChange - Social Finance Platform
 
 > **Where Market Chatter Becomes Market Insight**
 
