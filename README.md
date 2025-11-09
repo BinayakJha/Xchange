@@ -437,8 +437,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📧 Contact & Support
 
-- **Project Link**: [https://github.com/BinayakJha/Xchange](https://github.com/yourusername/xchange)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/xchange/issues)
+- **Project Link**: [https://github.com/BinayakJha/Xchange](https://github.com/BinayakJha/Xchange)
+- **Issues**: [GitHub Issues](https://github.com/BinayakJha/Xchange/issues)
 
 ---
 
