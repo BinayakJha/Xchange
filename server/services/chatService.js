@@ -122,6 +122,29 @@ function extractTicker(text) {
 }
 
 /**
+ * Check if a ticker is a cryptocurrency
+ */
+function isCryptoTicker(ticker) {
+	if (!ticker) return false;
+	const upperTicker = ticker.toUpperCase().trim();
+	return upperTicker.includes('-USD') && (
+		upperTicker.startsWith('BTC-') ||
+		upperTicker.startsWith('ETH-') ||
+		upperTicker.startsWith('BNB-') ||
+		upperTicker.startsWith('SOL-') ||
+		upperTicker.startsWith('ADA-') ||
+		upperTicker.startsWith('XRP-') ||
+		upperTicker.startsWith('DOGE-') ||
+		upperTicker.startsWith('DOT-') ||
+		upperTicker.startsWith('MATIC-') ||
+		upperTicker.startsWith('AVAX-') ||
+		upperTicker.startsWith('LTC-') ||
+		upperTicker.startsWith('LINK-') ||
+		upperTicker.startsWith('UNI-')
+	);
+}
+
+/**
  * Parse trade command from user message
  * Returns trade action if detected, null otherwise
  */
@@ -661,8 +684,9 @@ export async function chatWithAI(message, context = {}) {
 		positions.length > 0
 			? `Current positions: ${positions
 					.map((p) => {
-						const currentPrice = currentPrices[p.ticker] || p.currentPrice || p.entryPrice;
-						return `${p.quantity} ${p.ticker} @ $${p.entryPrice.toFixed(2)} (current: $${currentPrice.toFixed(2)})`;
+						const entryPrice = p.entryPrice || p.averagePrice || 0;
+						const currentPrice = currentPrices[p.ticker] || p.currentPrice || entryPrice;
+						return `${p.quantity} ${p.ticker} @ $${entryPrice.toFixed(2)} (current: $${currentPrice.toFixed(2)})`;
 					})
 					.join(", ")}`
 			: "No open positions";
@@ -748,23 +772,29 @@ IMPORTANT: Always use the CURRENT MARKET PRICES listed above when executing trad
   "response": "your helpful response to the user",
   "tradeActions": [
     {
-      "ticker": "AAPL",
+      "ticker": "AAPL" or "ETH-USD",
       "action": "buy" | "sell",
-      "quantity": number of shares,
-      "price": current market price per share
+      "assetType": "stock" | "crypto" | "option",
+      "quantity": number of shares/contracts (for stocks/options),
+      "amount": dollar amount (for crypto when buying by dollar amount),
+      "price": current market price per share/token
     }
   ] | null,
   "tradeAction": {
-    "ticker": "AAPL",
+    "ticker": "AAPL" or "ETH-USD",
     "action": "buy" | "sell",
-    "quantity": number of shares,
-    "price": current market price per share
+    "assetType": "stock" | "crypto" | "option",
+    "quantity": number of shares/contracts (for stocks/options),
+    "amount": dollar amount (for crypto when buying by dollar amount),
+    "price": current market price per share/token
   } | null
 }
 
 If executing trades:
 - For DIVERSIFICATION: Return "tradeActions" array with ALL trades (sells first, then buys)
 - For single trade: Return "tradeAction" object
+- For CRYPTO (tickers ending in -USD): Use "assetType": "crypto" and "amount" for dollar-based buys (allows fractional tokens)
+- For STOCKS: Use "assetType": "stock" and "quantity" (whole shares only)
 - For BUY: Calculate quantity from dollar amount if needed, use current market price
 - For SELL: Verify user has the position, use current market price
 - Set price to current market price (make reasonable estimate if unavailable)
@@ -887,15 +917,28 @@ If executing trades:
 				
 				parsed.tradeAction.price = realTimePrice;
 
-				// If it's a dollar amount buy, recalculate quantity with real price
+				// Set assetType based on ticker
+				if (!parsed.tradeAction.assetType) {
+					parsed.tradeAction.assetType = isCryptoTicker(ticker) ? 'crypto' : 'stock';
+				}
+
+				// If it's a dollar amount buy, recalculate quantity/amount with real price
 				if (
 					tradeCommand &&
 					tradeCommand.action === "buy" &&
 					tradeCommand.isDollarAmount
 				) {
-					parsed.tradeAction.quantity = Math.floor(tradeCommand.amount / realTimePrice);
-					if (parsed.tradeAction.quantity < 1) {
-						parsed.tradeAction.quantity = 1; // Minimum 1 share
+					const isCrypto = isCryptoTicker(ticker);
+					if (isCrypto) {
+						// For crypto, use amount instead of quantity (allows fractional)
+						parsed.tradeAction.amount = tradeCommand.amount;
+						parsed.tradeAction.quantity = undefined;
+					} else {
+						// For stocks, calculate whole shares
+						parsed.tradeAction.quantity = Math.floor(tradeCommand.amount / realTimePrice);
+						if (parsed.tradeAction.quantity < 1) {
+							parsed.tradeAction.quantity = 1; // Minimum 1 share
+						}
 					}
 				}
 			}
@@ -916,6 +959,10 @@ If executing trades:
 					}
 				} else {
 					trade.price = realTimePrice; // Always use real-time price
+					// Set assetType if not already set
+					if (!trade.assetType) {
+						trade.assetType = isCryptoTicker(ticker) ? 'crypto' : 'stock';
+					}
 				}
 			}
 			
