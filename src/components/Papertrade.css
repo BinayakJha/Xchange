@@ -294,6 +294,29 @@
     margin-top: 2px;
 }
 
+.sell-button-small {
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: none;
+    background: linear-gradient(135deg, #f4212e, #c91822);
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    white-space: nowrap;
+}
+
+.sell-button-small:hover {
+    background: linear-gradient(135deg, #ff2d3a, #e01a26);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(244, 33, 46, 0.3);
+}
+
+.sell-button-small:active {
+    transform: translateY(0);
+}
+
 @media (max-width: 1024px) {
     .trade-panel {
         grid-template-columns: 1fr;

@@ -342,32 +342,61 @@ const Papertrade: React.FC = () => {
                   <th>Last Price</th>
                   <th>Total Value</th>
                   <th>P&L</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {paperPositions.map((position) => (
-                  <tr key={position.id}>
-                    <td>
-                      <div className="ticker-cell">{position.symbol}</div>
-                      {position.assetType === 'option' && position.optionDetails && (
-                        <div className="option-meta">
-                          {position.optionDetails.optionType} ${position.optionDetails.strikePrice.toFixed(2)} exp {position.optionDetails.expirationDate}
-                        </div>
-                      )}
-                    </td>
-                    <td>{position.assetType.toUpperCase()}</td>
-                    <td>
-                      {position.quantity}{' '}
-                      {position.assetType === 'option' ? 'contract(s)' : position.assetType === 'crypto' ? 'token(s)' : 'share(s)'}
-                    </td>
-                    <td>${position.averagePrice.toFixed(2)}</td>
-                    <td>${position.currentPrice.toFixed(2)}</td>
-                    <td>${position.totalValue.toFixed(2)}</td>
-                    <td className={position.pnl >= 0 ? 'positive' : 'negative'}>
-                      ${position.pnl.toFixed(2)} ({position.pnlPercent.toFixed(2)}%)
-                    </td>
-                  </tr>
-                ))}
+                {paperPositions.map((position) => {
+                  const handleSellPosition = async () => {
+                    const result = await executePaperTrade({
+                      ticker: position.symbol,
+                      action: 'sell',
+                      assetType: position.assetType,
+                      price: position.currentPrice,
+                      quantity: position.quantity,
+                      optionDetails: position.optionDetails,
+                    });
+
+                    if (result.success) {
+                      setFeedback(`✅ Sold ${position.quantity} ${position.assetType === 'option' ? 'contract(s)' : position.assetType === 'crypto' ? 'token(s)' : 'share(s)'} of ${position.symbol} at $${position.currentPrice.toFixed(2)}`);
+                    } else {
+                      setFeedback(result.error || 'Failed to sell position.');
+                    }
+                  };
+
+                  return (
+                    <tr key={position.id}>
+                      <td>
+                        <div className="ticker-cell">{position.symbol}</div>
+                        {position.assetType === 'option' && position.optionDetails && (
+                          <div className="option-meta">
+                            {position.optionDetails.optionType} ${position.optionDetails.strikePrice.toFixed(2)} exp {position.optionDetails.expirationDate}
+                          </div>
+                        )}
+                      </td>
+                      <td>{position.assetType.toUpperCase()}</td>
+                      <td>
+                        {position.quantity}{' '}
+                        {position.assetType === 'option' ? 'contract(s)' : position.assetType === 'crypto' ? 'token(s)' : 'share(s)'}
+                      </td>
+                      <td>${position.averagePrice.toFixed(2)}</td>
+                      <td>${position.currentPrice.toFixed(2)}</td>
+                      <td>${position.totalValue.toFixed(2)}</td>
+                      <td className={position.pnl >= 0 ? 'positive' : 'negative'}>
+                        ${position.pnl.toFixed(2)} ({position.pnlPercent.toFixed(2)}%)
+                      </td>
+                      <td>
+                        <button 
+                          className="sell-button-small" 
+                          onClick={handleSellPosition}
+                          title={`Sell all ${position.quantity} ${position.assetType === 'option' ? 'contract(s)' : position.assetType === 'crypto' ? 'token(s)' : 'share(s)'} of ${position.symbol}`}
+                        >
+                          Sell
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
