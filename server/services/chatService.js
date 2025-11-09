@@ -714,21 +714,24 @@ IMPORTANT: Always use the CURRENT MARKET PRICES listed above when executing trad
 		
 		if (tradeCommand.action === "buy") {
 			if (realTimePrice) {
-				prompt += `\nThe user wants to BUY ${ticker}. `;
+				prompt += `\n\n🚨 TRADE EXECUTION REQUIRED 🚨\nThe user wants to BUY ${ticker}. `;
 				if (tradeCommand.isDollarAmount) {
 					const calculatedQuantity = Math.floor(tradeCommand.amount / realTimePrice);
 					prompt += `They want to spend $${tradeCommand.amount}. At current price of $${realTimePrice.toFixed(2)} per share, this equals ${calculatedQuantity} shares. `;
+					prompt += `\n\nYOU MUST RETURN a tradeAction with:\n- ticker: "${ticker}"\n- action: "buy"\n- quantity: ${calculatedQuantity}\n- price: ${realTimePrice.toFixed(2)}\n\nEXECUTE THIS TRADE AUTOMATICALLY. The user is asking you to buy for them, so do it!`;
 				} else {
 					prompt += `They want ${tradeCommand.amount} shares. Current price is $${realTimePrice.toFixed(2)} per share. `;
+					prompt += `\n\nYOU MUST RETURN a tradeAction with:\n- ticker: "${ticker}"\n- action: "buy"\n- quantity: ${tradeCommand.amount}\n- price: ${realTimePrice.toFixed(2)}\n\nEXECUTE THIS TRADE AUTOMATICALLY. The user is asking you to buy for them, so do it!`;
 				}
-				prompt += `Use the EXACT price $${realTimePrice.toFixed(2)} from the prices list above. Return a tradeAction in your response JSON to execute this trade.`;
+				prompt += `\nUse the EXACT price $${realTimePrice.toFixed(2)} from the prices list above.`;
 			} else {
 				prompt += `\nThe user wants to BUY ${ticker}, but current market price is not available. Do NOT execute the trade. Inform the user that the price could not be fetched.`;
 			}
 		} else if (tradeCommand.action === "sell") {
 			if (realTimePrice) {
-				prompt += `\nThe user wants to SELL ${tradeCommand.quantity} shares of ${ticker}. Current price is $${realTimePrice.toFixed(2)} per share. `;
-				prompt += `Check if they have this position. Use the EXACT price $${realTimePrice.toFixed(2)} from the prices list above. Return a tradeAction in your response JSON to execute this trade.`;
+				prompt += `\n\n🚨 TRADE EXECUTION REQUIRED 🚨\nThe user wants to SELL ${tradeCommand.quantity} shares of ${ticker}. Current price is $${realTimePrice.toFixed(2)} per share. `;
+				prompt += `\n\nYOU MUST RETURN a tradeAction with:\n- ticker: "${ticker}"\n- action: "sell"\n- quantity: ${tradeCommand.quantity}\n- price: ${realTimePrice.toFixed(2)}\n\nEXECUTE THIS TRADE AUTOMATICALLY. The user is asking you to sell for them, so do it!`;
+				prompt += `\nUse the EXACT price $${realTimePrice.toFixed(2)} from the prices list above.`;
 			} else {
 				prompt += `\nThe user wants to SELL ${ticker}, but current market price is not available. Do NOT execute the trade. Inform the user that the price could not be fetched.`;
 			}
@@ -765,7 +768,9 @@ If executing trades:
 - For BUY: Calculate quantity from dollar amount if needed, use current market price
 - For SELL: Verify user has the position, use current market price
 - Set price to current market price (make reasonable estimate if unavailable)
-- Only include tradeAction(s) if user explicitly wants to trade`;
+- ALWAYS include tradeAction(s) when user asks to buy/sell - EXECUTE TRADES AUTOMATICALLY
+- When user says "buy X" or "sell X", they want you to DO IT FOR THEM - execute the trade immediately
+- Be proactive: if user asks to buy something, execute it without asking for confirmation`;
 
 	const headers = {
 		Authorization: `Bearer ${GROK_API_KEY}`,

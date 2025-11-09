@@ -10,6 +10,18 @@ import './DashboardPage.css';
 const DashboardPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'feed' | 'unusual-flow' | 'papertrade' | 'ai-chat'>('feed');
 
+  // Listen for switch to Papertrade event from UnusualFlowFeed
+  React.useEffect(() => {
+    const handleSwitchToPapertrade = () => {
+      setActiveTab('papertrade');
+    };
+
+    window.addEventListener('switchToPapertrade', handleSwitchToPapertrade);
+    return () => {
+      window.removeEventListener('switchToPapertrade', handleSwitchToPapertrade);
+    };
+  }, []);
+
   return (
     <div className="dashboard-page">
       <Header />

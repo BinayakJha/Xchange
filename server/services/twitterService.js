@@ -48,7 +48,7 @@ else if (TWITTER_ACCESS_TOKEN && TWITTER_ACCESS_TOKEN_SECRET && TWITTER_CONSUMER
 }
 
 /**
- * Get tweets from specific users (past 24 hours)
+ * Get tweets from specific users (past 2 days)
  * @param {string[]} usernames - Array of Twitter usernames (without @)
  * @param {number} maxResults - Maximum number of tweets per user (default: 10)
  * @returns {Promise<Array>} Array of tweet objects
@@ -63,8 +63,8 @@ export async function getTweetsFromUsers(usernames = [], maxResults = 10) {
   }
 
   const allTweets = [];
-  const oneDayAgo = new Date();
-  oneDayAgo.setHours(oneDayAgo.getHours() - 24);
+  const twoDaysAgo = new Date();
+  twoDaysAgo.setHours(twoDaysAgo.getHours() - 48); // 2 days ago
 
   try {
     // Track if we get any 401 errors (authentication failure)
@@ -84,14 +84,14 @@ export async function getTweetsFromUsers(usernames = [], maxResults = 10) {
 
         const userId = user.data.id;
 
-        // Fetch user's tweets from the last 24 hours with media
+        // Fetch user's tweets from the last 2 days with media
         const tweets = await twitterClient.v2.userTimeline(userId, {
           max_results: Math.min(maxResults, 100), // Twitter API limit is 100
           'tweet.fields': ['created_at', 'public_metrics', 'text', 'author_id', 'attachments'],
           'user.fields': ['profile_image_url', 'verified', 'name', 'username'],
           'media.fields': ['type', 'url', 'preview_image_url'],
           expansions: ['attachments.media_keys'],
-          start_time: oneDayAgo.toISOString(),
+          start_time: twoDaysAgo.toISOString(),
         });
 
         if (tweets && tweets.data && tweets.data.data) {
@@ -110,9 +110,9 @@ export async function getTweetsFromUsers(usernames = [], maxResults = 10) {
           }
           
           tweets.data.data.forEach((tweet) => {
-            // Check if tweet is within 24 hours
+            // Check if tweet is within 2 days
             const tweetDate = new Date(tweet.created_at);
-            if (tweetDate >= oneDayAgo) {
+            if (tweetDate >= twoDaysAgo) {
               // Extract image URLs from media attachments
               const imageUrls = [];
               if (tweet.attachments && tweet.attachments.media_keys) {
@@ -156,7 +156,7 @@ export async function getTweetsFromUsers(usernames = [], maxResults = 10) {
           
           tweets.data.forEach((tweet) => {
             const tweetDate = new Date(tweet.created_at);
-            if (tweetDate >= oneDayAgo) {
+            if (tweetDate >= twoDaysAgo) {
               // Extract image URLs from media attachments
               const imageUrls = [];
               if (tweet.attachments && tweet.attachments.media_keys) {

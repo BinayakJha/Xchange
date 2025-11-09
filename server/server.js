@@ -17,6 +17,22 @@ import {
 } from "./services/twitterService.js";
 import { analyzeFlowImage } from "./services/imageAnalysisService.js";
 import { chatWithAI } from "./services/chatService.js";
+// Authentication removed - using simple dummy auth
+// Dummy authenticateToken middleware - allows all requests
+const authenticateToken = (req, res, next) => {
+	// Dummy auth - just set a fake userId
+	req.userId = 'dummy-user';
+	req.username = 'guest';
+	next();
+};
+
+import { 
+	watchlistDb, 
+	positionsDb, 
+	tradeHistoryDb, 
+	settingsDb,
+	ensureInitialized 
+} from "./database/db.js";
 
 dotenv.config();
 
@@ -51,6 +67,280 @@ app.use(express.json());
 // Health check endpoint
 app.get("/health", (req, res) => {
 	res.json({ status: "ok" });
+});
+
+// ============================================
+// WATCHLIST ENDPOINTS
+// ============================================
+
+// Get user's watchlist
+app.get("/api/watchlist", authenticateToken, async (req, res) => {
+	try {
+		const watchlist = watchlistDb.getAll(req.userId);
+		res.json({ 
+			success: true, 
+			watchlist: watchlist.map(item => ({
+				ticker: item.ticker,
+				addedAt: item.added_at
+			}))
+		});
+	} catch (error) {
+		console.error("[API] Get watchlist error:", error);
+		res.status(500).json({ success: false, error: "Failed to get watchlist" });
+	}
+});
+
+// Add to watchlist
+app.post("/api/watchlist", authenticateToken, async (req, res) => {
+	try {
+		const { ticker } = req.body;
+		if (!ticker || !ticker.trim()) {
+			return res.status(400).json({ success: false, error: "Ticker is required" });
+		}
+		watchlistDb.add(req.userId, ticker.trim());
+		res.json({ success: true });
+	} catch (error) {
+		console.error("[API] Add watchlist error:", error);
+		res.status(500).json({ success: false, error: "Failed to add to watchlist" });
+	}
+});
+
+// Remove from watchlist
+app.delete("/api/watchlist/:ticker", authenticateToken, async (req, res) => {
+	try {
+		const { ticker } = req.params;
+		watchlistDb.remove(req.userId, ticker);
+		res.json({ success: true });
+	} catch (error) {
+		console.error("[API] Remove watchlist error:", error);
+		res.status(500).json({ success: false, error: "Failed to remove from watchlist" });
+	}
+});
+
+// ============================================
+// POSITIONS ENDPOINTS
+// ============================================
+
+// Get user's positions
+app.get("/api/positions", authenticateToken, async (req, res) => {
+	try {
+		const positions = positionsDb.getAll(req.userId);
+		res.json({ 
+			success: true, 
+			positions: positions.map(pos => ({
+				id: pos.id,
+				ticker: pos.ticker,
+				quantity: pos.quantity,
+				entryPrice: pos.entry_price,
+				currentPrice: pos.current_price,
+				pnl: pos.pnl,
+				pnlPercent: pos.pnl_percent,
+				type: pos.type || 'stock',
+				optionDetails: pos.option_details ? JSON.parse(pos.option_details) : null
+			}))
+		});
+	} catch (error) {
+		console.error("[API] Get positions error:", error);
+		res.status(500).json({ success: false, error: "Failed to get positions" });
+	}
+});
+
+// Add/Update position
+app.post("/api/positions", authenticateToken, async (req, res) => {
+	try {
+		const { ticker, quantity, entryPrice, currentPrice, type, optionDetails } = req.body;
+		
+		if (!ticker || !quantity || !entryPrice || !currentPrice) {
+			return res.status(400).json({ 
+				success: false, 
+				error: "Ticker, quantity, entryPrice, and currentPrice are required" 
+			});
+		}
+
+		// Check if position exists for this ticker/option
+		const existingPositions = positionsDb.getAll(req.userId);
+		const existing = existingPositions.find(p => {
+			if (type === 'option' && optionDetails) {
+				const existingOpt = p.option_details ? JSON.parse(p.option_details) : {};
+				return p.ticker === ticker && 
+				       p.type === 'option' &&
+				       existingOpt.optionType === optionDetails.optionType &&
+				       existingOpt.strikePrice === optionDetails.strikePrice &&
+				       existingOpt.expirationDate === optionDetails.expirationDate;
+			}
+			return p.ticker === ticker && (p.type === 'stock' || p.type === 'crypto');
+		});
+
+		const pnl = (currentPrice - entryPrice) * quantity;
+		const pnlPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+
+		if (existing) {
+			// Update existing position
+			const newQuantity = existing.quantity + quantity;
+			const newEntryPrice = ((existing.entry_price * existing.quantity) + (entryPrice * quantity)) / newQuantity;
+			const newPnl = (currentPrice - newEntryPrice) * newQuantity;
+			const newPnlPercent = ((currentPrice - newEntryPrice) / newEntryPrice) * 100;
+
+			positionsDb.update(req.userId, existing.id, {
+				quantity: newQuantity,
+				currentPrice,
+				pnl: newPnl,
+				pnlPercent: newPnlPercent
+			});
+
+			res.json({ success: true, positionId: existing.id });
+		} else {
+			// Create new position
+			const positionId = `pos-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+			positionsDb.create({
+				id: positionId,
+				userId: req.userId,
+				ticker: ticker.toUpperCase(),
+				quantity,
+				entryPrice,
+				currentPrice,
+				pnl,
+				pnlPercent,
+				type: type || 'stock',
+				optionDetails
+			});
+
+			res.json({ success: true, positionId });
+		}
+	} catch (error) {
+		console.error("[API] Add position error:", error);
+		res.status(500).json({ success: false, error: "Failed to add position" });
+	}
+});
+
+// Update position
+app.put("/api/positions/:id", authenticateToken, async (req, res) => {
+	try {
+		const { id } = req.params;
+		const updates = req.body;
+		
+		positionsDb.update(req.userId, id, updates);
+		res.json({ success: true });
+	} catch (error) {
+		console.error("[API] Update position error:", error);
+		res.status(500).json({ success: false, error: "Failed to update position" });
+	}
+});
+
+// Delete position
+app.delete("/api/positions/:id", authenticateToken, async (req, res) => {
+	try {
+		const { id } = req.params;
+		positionsDb.delete(req.userId, id);
+		res.json({ success: true });
+	} catch (error) {
+		console.error("[API] Delete position error:", error);
+		res.status(500).json({ success: false, error: "Failed to delete position" });
+	}
+});
+
+// ============================================
+// TRADE HISTORY ENDPOINTS
+// ============================================
+
+// Get trade history
+app.get("/api/trades", authenticateToken, async (req, res) => {
+	try {
+		const limit = parseInt(req.query.limit) || 100;
+		const trades = tradeHistoryDb.getAll(req.userId, limit);
+		res.json({ 
+			success: true, 
+			trades: trades.map(trade => ({
+				id: trade.id,
+				ticker: trade.ticker,
+				action: trade.action,
+				quantity: trade.quantity,
+				price: trade.price,
+				total: trade.total,
+				type: trade.type || 'stock',
+				optionDetails: trade.option_details ? JSON.parse(trade.option_details) : null,
+				timestamp: trade.timestamp
+			}))
+		});
+	} catch (error) {
+		console.error("[API] Get trades error:", error);
+		res.status(500).json({ success: false, error: "Failed to get trade history" });
+	}
+});
+
+// Add trade to history
+app.post("/api/trades", authenticateToken, async (req, res) => {
+	try {
+		const { ticker, action, quantity, price, total, type, optionDetails } = req.body;
+		
+		if (!ticker || !action || !quantity || !price || !total) {
+			return res.status(400).json({ 
+				success: false, 
+				error: "Ticker, action, quantity, price, and total are required" 
+			});
+		}
+
+		const tradeId = `trade-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+		tradeHistoryDb.create({
+			id: tradeId,
+			userId: req.userId,
+			ticker: ticker.toUpperCase(),
+			action: action.toUpperCase(),
+			quantity,
+			price,
+			total,
+			type: type || 'stock',
+			optionDetails
+		});
+
+		res.json({ success: true, tradeId });
+	} catch (error) {
+		console.error("[API] Add trade error:", error);
+		res.status(500).json({ success: false, error: "Failed to add trade" });
+	}
+});
+
+// ============================================
+// CASH BALANCE ENDPOINTS
+// ============================================
+
+// Get cash balance
+app.get("/api/cash-balance", authenticateToken, async (req, res) => {
+	try {
+		const settings = settingsDb.get(req.userId);
+		const cashBalance = settings?.preferences 
+			? JSON.parse(settings.preferences).cashBalance || 100000
+			: 100000;
+		res.json({ success: true, cashBalance });
+	} catch (error) {
+		console.error("[API] Get cash balance error:", error);
+		res.status(500).json({ success: false, error: "Failed to get cash balance" });
+	}
+});
+
+// Update cash balance
+app.put("/api/cash-balance", authenticateToken, async (req, res) => {
+	try {
+		const { cashBalance } = req.body;
+		if (typeof cashBalance !== 'number') {
+			return res.status(400).json({ success: false, error: "Cash balance must be a number" });
+		}
+
+		const settings = settingsDb.get(req.userId);
+		const preferences = settings?.preferences ? JSON.parse(settings.preferences) : {};
+		preferences.cashBalance = cashBalance;
+
+		settingsDb.createOrUpdate(req.userId, {
+			theme: settings?.theme || 'dark',
+			notificationsEnabled: settings?.notifications_enabled !== 0,
+			preferences
+		});
+
+		res.json({ success: true, cashBalance });
+	} catch (error) {
+		console.error("[API] Update cash balance error:", error);
+		res.status(500).json({ success: false, error: "Failed to update cash balance" });
+	}
 });
 
 // Analyze stock endpoint (returns full analysis with sentiment and tweets)
@@ -484,6 +774,69 @@ app.get("/api/yahoo/search", async (req, res) => {
 	}
 });
 
+// Yahoo Finance endpoint for multiple symbols (used by Papertrade)
+app.get("/api/yahoo-finance", async (req, res) => {
+	try {
+		const { symbols } = req.query;
+		if (!symbols) {
+			return res.status(400).json({ error: "symbols query parameter is required" });
+		}
+
+		const symbolList = symbols.split(',').map(s => s.trim()).filter(Boolean);
+		if (symbolList.length === 0) {
+			return res.status(400).json({ error: "At least one symbol is required" });
+		}
+
+		// Fetch data for all symbols
+		const results = [];
+		for (const symbol of symbolList) {
+			try {
+				const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+					symbol
+				)}?interval=1m&range=1d`;
+				const response = await fetch(url, {
+					headers: {
+						'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+					}
+				});
+
+				if (response.ok) {
+					const data = await response.json();
+					const result = data.chart?.result?.[0];
+					const meta = result?.meta;
+					
+					if (meta && meta.regularMarketPrice !== undefined) {
+						const price = meta.regularMarketPrice || 0;
+						const previousClose = meta.previousClose || meta.previousClosePrice || price;
+						const change = meta.regularMarketChange ?? (price - previousClose);
+						const changePercent = meta.regularMarketChangePercent ?? 
+							(previousClose ? ((price - previousClose) / previousClose) * 100 : 0);
+
+						results.push({
+							symbol: meta.symbol || symbol,
+							regularMarketPrice: price,
+							regularMarketChange: change || 0,
+							regularMarketChangePercent: changePercent || 0,
+							regularMarketVolume: meta.regularMarketVolume || 0,
+							marketCap: meta.marketCap || 0,
+							shortName: meta.shortName || meta.longName || meta.displayName || symbol,
+							longName: meta.longName || meta.shortName || symbol
+						});
+					}
+				}
+			} catch (error) {
+				console.error(`[Yahoo Finance] Error fetching ${symbol}:`, error.message);
+				// Continue with other symbols even if one fails
+			}
+		}
+
+		res.json(results);
+	} catch (error) {
+		console.error("[Yahoo Finance] Error:", error);
+		res.status(500).json({ error: "Failed to fetch quotes", message: error.message });
+	}
+});
+
 app.get("/api/yahoo/quote/:ticker", async (req, res) => {
 	try {
 		const { ticker } = req.params;
@@ -513,6 +866,12 @@ app.get("/api/yahoo/quote/:ticker", async (req, res) => {
 	}
 });
 
-app.listen(PORT, () => {
-	console.log(`Server running on http://localhost:${PORT}`);
+// Initialize database before starting server
+ensureInitialized().then(() => {
+	app.listen(PORT, () => {
+		console.log(`Server running on http://localhost:${PORT}`);
+	});
+}).catch((error) => {
+	console.error("Failed to initialize database:", error);
+	process.exit(1);
 });

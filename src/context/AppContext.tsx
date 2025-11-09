@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import {
   WatchlistItem,
   Tweet,
@@ -13,6 +13,7 @@ import {
 } from '../types';
 import { allStocks, mockPapertradeSuggestions, mockOptionSuggestions } from '../data/mockData';
 import { getStockQuote, updateStockPrices as fetchStockPrices } from '../services/stockApi';
+// Simple email/password authentication stored in localStorage
 
 interface AppContextType {
   watchlist: WatchlistItem[];
@@ -34,6 +35,8 @@ interface AppContextType {
   updateStockPrices: () => void;
   isAuthenticated: boolean;
   setAuthenticated: (value: boolean) => void;
+  useDatabase: boolean;
+  setUseDatabase: (value: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -57,6 +60,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [unusualFlows, setUnusualFlows] = useState<UnusualFlow[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [isAuthenticated, setAuthenticated] = useState(false);
+  const [useDatabase, setUseDatabase] = useState(false);
   const isUpdatingPricesRef = React.useRef(false);
   const isFetchingTweetsRef = React.useRef(false);
   const lastTweetFetchRef = React.useRef<number>(0);
@@ -1435,93 +1439,178 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, [isAuthenticated, updateStockPrices, watchlist.length, positions.length]);
 
-  // Fetch unusual flows from FL0WG0D account (all stocks, past 24 hours)
+  // Fetch unusual flows from FL0WG0D account (all stocks, past 2 days)
+  // Now works even when not authenticated
   React.useEffect(() => {
-    if (!isAuthenticated) {
-      return;
-    }
-
     const fetchUnusualFlows = async () => {
       try {
-        const { getTweetsFromTwitterAPI } = await import('../services/grokApi');
+        console.log('[Unusual Flows] Fetching all flows from FL0WG0D (past 2 days)...');
         
-        console.log('[Unusual Flows] Fetching all flows from FL0WG0D (past 24 hours)...');
-        // Fetch more tweets to get all flows from past 24 hours
-        const result = await getTweetsFromTwitterAPI(['FL0WG0D'], 100);
+        // Calculate 2 days ago timestamp
+        const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000);
         
-        if (!result || !result.success) {
-          console.log('[Unusual Flows] No result or unsuccessful response');
-          return;
+        // Try to fetch from Twitter API - fetch more tweets to cover 2 days
+        try {
+          const { getTweetsFromTwitterAPI } = await import('../services/grokApi');
+          const result = await getTweetsFromTwitterAPI(['FL0WG0D'], 200); // Increased to 200 to cover 2 days
+          
+          if (result && result.success && Array.isArray(result.tweets) && result.tweets.length > 0) {
+            // Convert tweets with images to UnusualFlow format
+            const flows: UnusualFlow[] = result.tweets
+              .filter((tweet: any) => {
+                // Filter by timestamp - only include tweets from past 2 days
+                const tweetTime = tweet?.timestamp ? new Date(tweet.timestamp).getTime() : 0;
+                const isWithin2Days = tweetTime >= twoDaysAgo;
+                
+                // Safe check for imageUrls - only include tweets with images
+                return tweet && 
+                       isWithin2Days &&
+                       Array.isArray(tweet.imageUrls) && 
+                       tweet.imageUrls.length > 0 &&
+                       tweet.imageUrls[0];
+              })
+              .map((tweet: any, index: number) => {
+                // Try to extract ticker from tweet content
+                const content = (tweet?.content || '').toUpperCase();
+                const tickerMatch = content.match(/\$([A-Z]{1,5}(?:-USD)?)/);
+                const ticker = tickerMatch ? tickerMatch[1] : 'UNKNOWN';
+                
+                // Determine flow type from content
+                let flowType: 'call' | 'put' | 'volume' = 'volume';
+                if (content.includes('CALL') || content.includes('BUY') || content.includes('LONG') || content.includes('CALL BUYER')) {
+                  flowType = 'call';
+                } else if (content.includes('PUT') || content.includes('SELL') || content.includes('SHORT') || content.includes('PUT BUYER')) {
+                  flowType = 'put';
+                }
+                
+                // Try to extract value from content (e.g., "$316K", "$750K")
+                let value = 0;
+                const valueMatch = content.match(/\$(\d+(?:\.\d+)?)([KM])?/);
+                if (valueMatch) {
+                  const numValue = parseFloat(valueMatch[1]);
+                  const multiplier = valueMatch[2] === 'M' ? 1000000 : valueMatch[2] === 'K' ? 1000 : 1;
+                  value = numValue * multiplier;
+                }
+                
+                // Safely get first image URL
+                const imageUrl = Array.isArray(tweet.imageUrls) && tweet.imageUrls.length > 0
+                  ? tweet.imageUrls[0]
+                  : null;
+                
+                return {
+                  id: `flow-${tweet?.id || Date.now()}-${index}`,
+                  ticker,
+                  type: flowType,
+                  description: tweet?.content || 'Unusual options flow detected',
+                  value,
+                  timestamp: tweet?.timestamp ? new Date(tweet.timestamp) : new Date(),
+                  imageUrl: imageUrl || undefined,
+                  tweetId: tweet?.id,
+                  tweetUrl: tweet?.id ? `https://x.com/FL0WG0D/status/${tweet.id}` : undefined,
+                };
+              })
+              .filter((flow: UnusualFlow) => {
+                // Only include flows with images and valid tickers
+                return flow.imageUrl && flow.ticker !== 'UNKNOWN';
+              })
+              // Sort by timestamp (most recent first)
+              .sort((a, b) => {
+                return b.timestamp.getTime() - a.timestamp.getTime();
+              });
+            
+            console.log(`[Unusual Flows] Found ${flows.length} flows with images (all stocks, past 2 days)`);
+            if (flows.length > 0) {
+              setUnusualFlows(flows);
+              return;
+            }
+          }
+        } catch (twitterError) {
+          console.warn('[Unusual Flows] Twitter API error, trying alternative method:', twitterError);
         }
 
-        if (!Array.isArray(result.tweets) || result.tweets.length === 0) {
-          console.log('[Unusual Flows] No tweets returned');
-          return;
-        }
-        
-        // Convert tweets with images to UnusualFlow format
-        const flows: UnusualFlow[] = result.tweets
-          .filter((tweet: any) => {
-            // Safe check for imageUrls - only include tweets with images
-            return tweet && 
-                   Array.isArray(tweet.imageUrls) && 
-                   tweet.imageUrls.length > 0 &&
-                   tweet.imageUrls[0];
-          })
-          .map((tweet: any, index: number) => {
-            // Try to extract ticker from tweet content
-            const content = (tweet?.content || '').toUpperCase();
-            const tickerMatch = content.match(/\$([A-Z]{1,5}(?:-USD)?)/);
-            const ticker = tickerMatch ? tickerMatch[1] : 'UNKNOWN';
-            
-            // Determine flow type from content
-            let flowType: 'call' | 'put' | 'volume' = 'volume';
-            if (content.includes('CALL') || content.includes('BUY') || content.includes('LONG') || content.includes('CALL BUYER')) {
-              flowType = 'call';
-            } else if (content.includes('PUT') || content.includes('SELL') || content.includes('SHORT') || content.includes('PUT BUYER')) {
-              flowType = 'put';
-            }
-            
-            // Try to extract value from content (e.g., "$316K", "$750K")
-            let value = 0;
-            const valueMatch = content.match(/\$(\d+(?:\.\d+)?)([KM])?/);
-            if (valueMatch) {
-              const numValue = parseFloat(valueMatch[1]);
-              const multiplier = valueMatch[2] === 'M' ? 1000000 : valueMatch[2] === 'K' ? 1000 : 1;
-              value = numValue * multiplier;
-            }
-            
-            // Safely get first image URL
-            const imageUrl = Array.isArray(tweet.imageUrls) && tweet.imageUrls.length > 0
-              ? tweet.imageUrls[0]
-              : null;
-            
-            return {
-              id: `flow-${tweet?.id || Date.now()}-${index}`,
-              ticker,
-              type: flowType,
-              description: tweet?.content || 'Unusual options flow detected',
-              value,
-              timestamp: tweet?.timestamp ? new Date(tweet.timestamp) : new Date(),
-              imageUrl: imageUrl || undefined,
-              tweetId: tweet?.id,
-              tweetUrl: tweet?.id ? `https://x.com/FL0WG0D/status/${tweet.id}` : undefined,
-            };
-          })
-          .filter((flow: UnusualFlow) => {
-            // Only include flows with images and valid tickers
-            return flow.imageUrl && flow.ticker !== 'UNKNOWN';
-          })
-          // Sort by timestamp (most recent first)
-          .sort((a, b) => {
-            return b.timestamp.getTime() - a.timestamp.getTime();
+        // Fallback: Try using the backend API endpoint
+        try {
+          const response = await fetch('/api/twitter/users', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              usernames: ['FL0WG0D'],
+              maxResults: 200 // Increased to 200 to cover 2 days
+            }),
           });
-        
-        console.log(`[Unusual Flows] Found ${flows.length} flows with images (all stocks, past 24 hours)`);
-        setUnusualFlows(flows);
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && Array.isArray(data.tweets) && data.tweets.length > 0) {
+              const flows: UnusualFlow[] = data.tweets
+                .filter((tweet: any) => {
+                  // Filter by timestamp - only include tweets from past 2 days
+                  const tweetTime = tweet?.timestamp ? new Date(tweet.timestamp).getTime() : 0;
+                  const isWithin2Days = tweetTime >= twoDaysAgo;
+                  
+                  return tweet && 
+                         isWithin2Days &&
+                         Array.isArray(tweet.imageUrls) && 
+                         tweet.imageUrls.length > 0 &&
+                         tweet.imageUrls[0];
+                })
+                .map((tweet: any, index: number) => {
+                  const content = (tweet?.content || '').toUpperCase();
+                  const tickerMatch = content.match(/\$([A-Z]{1,5}(?:-USD)?)/);
+                  const ticker = tickerMatch ? tickerMatch[1] : 'UNKNOWN';
+                  
+                  let flowType: 'call' | 'put' | 'volume' = 'volume';
+                  if (content.includes('CALL') || content.includes('BUY') || content.includes('LONG')) {
+                    flowType = 'call';
+                  } else if (content.includes('PUT') || content.includes('SELL') || content.includes('SHORT')) {
+                    flowType = 'put';
+                  }
+                  
+                  let value = 0;
+                  const valueMatch = content.match(/\$(\d+(?:\.\d+)?)([KM])?/);
+                  if (valueMatch) {
+                    const numValue = parseFloat(valueMatch[1]);
+                    const multiplier = valueMatch[2] === 'M' ? 1000000 : valueMatch[2] === 'K' ? 1000 : 1;
+                    value = numValue * multiplier;
+                  }
+                  
+                  const imageUrl = Array.isArray(tweet.imageUrls) && tweet.imageUrls.length > 0
+                    ? tweet.imageUrls[0]
+                    : null;
+                  
+                  return {
+                    id: `flow-${tweet?.id || Date.now()}-${index}`,
+                    ticker,
+                    type: flowType,
+                    description: tweet?.content || 'Unusual options flow detected',
+                    value,
+                    timestamp: tweet?.timestamp ? new Date(tweet.timestamp) : new Date(),
+                    imageUrl: imageUrl || undefined,
+                    tweetId: tweet?.id,
+                    tweetUrl: tweet?.id ? `https://x.com/FL0WG0D/status/${tweet.id}` : undefined,
+                  };
+                })
+                .filter((flow: UnusualFlow) => flow.imageUrl && flow.ticker !== 'UNKNOWN')
+                .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+              
+              console.log(`[Unusual Flows] Found ${flows.length} flows via API endpoint`);
+              if (flows.length > 0) {
+                setUnusualFlows(flows);
+                return;
+              }
+            }
+          }
+        } catch (apiError) {
+          console.warn('[Unusual Flows] API endpoint error:', apiError);
+        }
+
+        // If no flows found, set empty array
+        console.log('[Unusual Flows] No flows found, setting empty array');
+        setUnusualFlows([]);
       } catch (error) {
         console.error('[Unusual Flows] Error fetching flows:', error);
-        // Set empty array on error to prevent undefined state
         setUnusualFlows([]);
       }
     };
@@ -1531,7 +1620,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const interval = setInterval(fetchUnusualFlows, 300000); // 5 minutes
 
     return () => clearInterval(interval);
-  }, [isAuthenticated]);
+  }, []); // Remove isAuthenticated dependency - fetch flows regardless of auth status
+
+  // Simple local authentication - check localStorage
+  useEffect(() => {
+    const isAuth = localStorage.getItem('isAuthenticated') === 'true';
+    const storedEmail = localStorage.getItem('authEmail');
+    if (isAuth && storedEmail) {
+      setAuthenticated(true);
+    } else {
+      setAuthenticated(false);
+      localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem('authEmail');
+    }
+    setUseDatabase(false); // No persistent database for auth
+  }, []);
 
   return (
     <AppContext.Provider
@@ -1555,6 +1658,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         updateStockPrices,
         isAuthenticated,
         setAuthenticated,
+        useDatabase,
+        setUseDatabase,
       }}
     >
       {children}

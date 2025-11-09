@@ -14,9 +14,14 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const AppRoutes: React.FC = () => {
+  const { isAuthenticated } = useApp();
+  
   return (
     <Routes>
-      <Route path="/" element={<LandingPage />} />
+      <Route 
+        path="/" 
+        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />} 
+      />
       <Route
         path="/watchlist"
         element={

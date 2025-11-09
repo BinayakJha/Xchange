@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import SectorHeatmap from './SectorHeatmap';
 import { Stock } from '../types';
+import { positionsApi } from '../services/userDataApi';
+import { cashBalanceApi, tradesApi } from '../services/papertradeApi';
 import './AIChat.css';
 
 interface Message {
@@ -23,7 +25,7 @@ interface Message {
 }
 
 const AIChat: React.FC = () => {
-  const { watchlist, positions, addPosition, removePosition } = useApp();
+  const { watchlist, positions, addPosition, removePosition, isAuthenticated, useDatabase } = useApp();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -56,69 +58,101 @@ const AIChat: React.FC = () => {
       if (action === 'buy' && (!quantity || quantity <= 0)) {
         return { success: false, error: `Invalid quantity: ${quantity}. Cannot execute trade.` };
       }
-      
-      if (action === 'buy') {
-        // Check if position already exists
-        const existingPosition = positions.find(p => p.ticker === ticker && p.type === 'stock');
-        
-        if (existingPosition) {
-          // Update existing position (average price)
-          const totalCost = (existingPosition.quantity * existingPosition.entryPrice) + (quantity * price);
-          const totalQuantity = existingPosition.quantity + quantity;
-          const avgPrice = totalCost / totalQuantity;
+
+      const totalCost = quantity * price;
+
+      // Use Papertrade system for both authenticated and guest mode
+      if (isAuthenticated && useDatabase) {
+        try {
+          const cashBalance = await cashBalanceApi.get();
           
-          // Remove old position and add updated one
-          removePosition(existingPosition.id);
-          const newPosition = {
-            id: `trade-${Date.now()}`,
-            ticker,
-            quantity: totalQuantity,
-            entryPrice: avgPrice,
-            currentPrice: price,
-            pnl: 0,
-            pnlPercent: 0,
-            type: 'stock' as const,
-          };
-          addPosition(newPosition);
-          return { success: true, position: newPosition };
-        } else {
-          // Create new position
-          const position = {
-            id: `trade-${Date.now()}`,
-            ticker,
-            quantity,
-            entryPrice: price,
-            currentPrice: price,
-            pnl: 0,
-            pnlPercent: 0,
-            type: 'stock' as const,
-          };
-          addPosition(position);
-          return { success: true, position };
+          if (action === 'buy' && totalCost > cashBalance) {
+            return { success: false, error: `Insufficient funds! You need $${totalCost.toFixed(2)} but only have $${cashBalance.toFixed(2)}.` };
+          }
+
+          // Create trade record
+          await tradesApi.create({
+            ticker: ticker,
+            action: action.toUpperCase() as 'BUY' | 'SELL',
+            quantity: quantity,
+            price: price,
+            total: totalCost,
+            type: 'stock'
+          });
+
+          // Update position
+          if (action === 'buy') {
+            const dbPositions = await positionsApi.getAll();
+            const existingPosition = dbPositions.find(p => 
+              p.ticker === ticker && p.type === 'stock'
+            );
+
+            if (existingPosition) {
+              await positionsApi.update(existingPosition.id!, {
+                quantity: existingPosition.quantity + quantity,
+                currentPrice: price
+              });
+            } else {
+              await positionsApi.add({
+                ticker: ticker,
+                quantity: quantity,
+                entryPrice: price,
+                currentPrice: price,
+                type: 'stock'
+              });
+            }
+
+            // Update cash balance
+            const newBalance = cashBalance - totalCost;
+            await cashBalanceApi.update(newBalance);
+          } else {
+            // SELL
+            const dbPositions = await positionsApi.getAll();
+            const dbPosition = dbPositions.find(p => p.ticker === ticker && p.type === 'stock');
+
+            if (!dbPosition || dbPosition.quantity < quantity) {
+              return { success: false, error: `Insufficient shares to sell! You don't have enough ${ticker} shares.` };
+            }
+
+            if (dbPosition.quantity <= quantity) {
+              await positionsApi.remove(dbPosition.id!);
+            } else {
+              await positionsApi.update(dbPosition.id!, {
+                quantity: dbPosition.quantity - quantity,
+                currentPrice: price
+              });
+            }
+
+            // Update cash balance
+            const newBalance = cashBalance + totalCost;
+            await cashBalanceApi.update(newBalance);
+          }
+
+          // Trigger position refresh in Papertrade
+          window.dispatchEvent(new CustomEvent('refreshPapertradePositions'));
+          
+          return { success: true, total: totalCost };
+        } catch (error: any) {
+          console.error('[AI Trade] Error executing trade:', error);
+          return { success: false, error: error.message || 'Failed to execute trade' };
         }
       } else {
-        // Find position to sell
-        const position = positions.find(p => p.ticker === ticker && p.type === 'stock');
-        if (!position) {
-          return { success: false, error: `No position found for ${ticker}` };
-        }
+        // Guest mode - send trade data to Papertrade via custom event
+        const tradeData = {
+          ticker,
+          action: action.toUpperCase() as 'BUY' | 'SELL',
+          quantity,
+          price,
+          total: totalCost,
+          assetType: 'Stock' as const,
+          currentPrice: price
+        };
+
+        // Dispatch event to Papertrade to execute the trade
+        console.log('[AI Trade] Dispatching executeFlowTrade event with data:', tradeData);
+        window.dispatchEvent(new CustomEvent('executeFlowTrade', { detail: tradeData }));
         
-        if (quantity >= position.quantity) {
-          // Sell entire position
-          removePosition(position.id);
-          return { success: true, position };
-        } else {
-          // Partial sell - update position
-          removePosition(position.id);
-          const remainingQuantity = position.quantity - quantity;
-          const newPosition = {
-            ...position,
-            id: `trade-${Date.now()}`,
-            quantity: remainingQuantity,
-          };
-          addPosition(newPosition);
-          return { success: true, position: { ...position, quantity } };
-        }
+        return { success: true, total: totalCost };
       }
     } catch (error) {
       console.error('Error executing trade:', error);

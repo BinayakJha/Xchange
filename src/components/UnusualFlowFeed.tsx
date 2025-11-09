@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { UnusualFlow } from '../types';
 import { BullishIcon, BearishIcon } from './Icons';
+import { positionsApi } from '../services/userDataApi';
+import { cashBalanceApi, tradesApi } from '../services/papertradeApi';
 import './UnusualFlowFeed.css';
 
 interface FlowAnalysis {
@@ -14,10 +16,11 @@ interface FlowAnalysis {
 }
 
 const UnusualFlowFeed: React.FC = () => {
-  const { unusualFlows, isAuthenticated, addPosition } = useApp();
+  const { unusualFlows, isAuthenticated, useDatabase } = useApp();
   const feedRef = useRef<HTMLDivElement>(null);
   const [selectedFlow, setSelectedFlow] = useState<UnusualFlow | null>(null);
   const [analysis, setAnalysis] = useState<FlowAnalysis | null>(null);
+  const [isExecutingTrade, setIsExecutingTrade] = useState(false);
 
   // Ensure unusualFlows is always an array
   const flows = Array.isArray(unusualFlows) ? unusualFlows : [];
@@ -200,31 +203,215 @@ const UnusualFlowFeed: React.FC = () => {
     }
   };
 
-  // Handle buy/sell action
+  // Handle buy/sell action - Execute option trade in Papertrade
   const handleTrade = async (action: 'buy' | 'sell') => {
     if (!selectedFlow || !analysis) return;
 
-    // For now, just log the action
-    // Later this can be integrated with the papertrade system
-    console.log(`[Flow Trade] ${action.toUpperCase()} ${analysis.ticker}`, analysis);
-    
-    // TODO: Integrate with addPosition from AppContext
-    // This would require creating an option position
-    alert(`${action.toUpperCase()} order for ${analysis.ticker} would be executed here`);
+    // Use defaults if fields are missing - allow trading with dummy data
+    // No validation errors - we'll use defaults
+
+    // Convert expiration date to YYYY-MM-DD format if needed
+    let expirationDateStr = analysis.expirationDate;
+    try {
+      // Try to parse and format the date
+      const dateMatch = expirationDateStr.match(/(\d{1,2})\/(\d{1,2})/);
+      if (dateMatch) {
+        // Format: MM/DD -> YYYY-MM-DD (assuming current year)
+        const month = dateMatch[1].padStart(2, '0');
+        const day = dateMatch[2].padStart(2, '0');
+        const currentYear = new Date().getFullYear();
+        expirationDateStr = `${currentYear}-${month}-${day}`;
+      } else if (!expirationDateStr.includes('-')) {
+        // If it's not in YYYY-MM-DD format, try to parse it
+        const parsedDate = new Date(expirationDateStr);
+        if (!isNaN(parsedDate.getTime())) {
+          expirationDateStr = parsedDate.toISOString().split('T')[0];
+        }
+      }
+    } catch (e) {
+      console.warn('Could not parse expiration date:', e);
+    }
+
+    setIsExecutingTrade(true);
+
+    try {
+      // Get current stock price for the ticker
+      const ticker = analysis.ticker;
+      let stockPrice = 100; // Default dummy price
+      
+      try {
+        const response = await fetch(`/api/yahoo-finance?symbols=${ticker}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data) && data.length > 0 && data[0].regularMarketPrice) {
+            stockPrice = data[0].regularMarketPrice;
+          }
+        }
+      } catch (e) {
+        console.warn('[Flow Trade] Could not fetch stock price, using default');
+      }
+
+      // Default quantity to 1 contract if not specified
+      const quantity = 1;
+      // Use premium from analysis, or estimate based on stock price (typically 1-5% of stock price for options)
+      const price = analysis.premium || Math.max(0.50, stockPrice * 0.02); // Minimum $0.50, or 2% of stock price
+      const multiplier = 100; // Options are 100 shares per contract
+      const totalCost = price * quantity * multiplier;
+
+      // Execute the trade (both authenticated and guest mode)
+      // Use dummy/default values if not extracted from image
+      const tradeType = 'option';
+      const optionType = (analysis.optionType || (flow.type === 'call' ? 'call' : flow.type === 'put' ? 'put' : 'call')).toUpperCase() as 'CALL' | 'PUT';
+      const strikePrice = analysis.strikePrice || Math.round(stockPrice * 0.95); // Default to 95% of current price
+      const expirationDate = expirationDateStr || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // Default to 7 days from now
+      
+      const optionDetails = {
+        optionType: optionType,
+        strikePrice: strikePrice,
+        expirationDate: expirationDate
+      };
+
+      if (isAuthenticated && useDatabase) {
+        try {
+          const cashBalance = await cashBalanceApi.get();
+          
+          if (action === 'buy' && totalCost > cashBalance) {
+            alert(`Insufficient funds! You need $${totalCost.toFixed(2)} but only have $${cashBalance.toFixed(2)}.`);
+            setIsExecutingTrade(false);
+            return;
+          }
+
+          // Create trade record
+          await tradesApi.create({
+            ticker: ticker,
+            action: action.toUpperCase() as 'BUY' | 'SELL',
+            quantity: quantity,
+            price: price,
+            total: totalCost,
+            type: tradeType,
+            optionDetails
+          });
+
+          // Update position
+          if (action === 'buy') {
+            // Check if position exists
+            const dbPositions = await positionsApi.getAll();
+            const existingPosition = dbPositions.find(p => 
+              p.ticker === ticker && 
+              p.type === 'option' &&
+              p.optionDetails?.optionType === optionDetails.optionType &&
+              p.optionDetails?.strikePrice === optionDetails.strikePrice &&
+              p.optionDetails?.expirationDate === optionDetails.expirationDate
+            );
+
+            if (existingPosition) {
+              // Update existing position
+              await positionsApi.update(existingPosition.id!, {
+                quantity: existingPosition.quantity + quantity,
+                currentPrice: price
+              });
+            } else {
+              // Create new position
+              await positionsApi.add({
+                ticker: ticker,
+                quantity: quantity,
+                entryPrice: price,
+                currentPrice: price,
+                type: tradeType,
+                optionDetails
+              });
+            }
+
+            // Update cash balance
+            const newBalance = cashBalance - totalCost;
+            await cashBalanceApi.update(newBalance);
+          } else {
+            // SELL - Find and update/remove position
+            const dbPositions = await positionsApi.getAll();
+            const dbPosition = dbPositions.find(p => 
+              p.ticker === ticker && 
+              p.type === 'option' &&
+              p.optionDetails?.optionType === optionDetails.optionType &&
+              p.optionDetails?.strikePrice === optionDetails.strikePrice &&
+              p.optionDetails?.expirationDate === optionDetails.expirationDate
+            );
+
+            if (!dbPosition || dbPosition.quantity < quantity) {
+              alert(`Insufficient contracts to sell! You don't have enough ${ticker} ${optionDetails.optionType} options.`);
+              setIsExecutingTrade(false);
+              return;
+            }
+
+            if (dbPosition.quantity <= quantity) {
+              await positionsApi.remove(dbPosition.id!);
+            } else {
+              await positionsApi.update(dbPosition.id!, {
+                quantity: dbPosition.quantity - quantity,
+                currentPrice: price
+              });
+            }
+
+            // Update cash balance
+            const newBalance = cashBalance + totalCost;
+            await cashBalanceApi.update(newBalance);
+          }
+
+          // Trigger position refresh in Papertrade
+          window.dispatchEvent(new CustomEvent('refreshPapertradePositions'));
+          
+          alert(`✅ ${action.toUpperCase()} order executed successfully!\n${quantity} ${optionDetails.optionType} contract(s) of ${ticker} at $${price.toFixed(2)}/contract\nTotal: $${totalCost.toFixed(2)}`);
+          
+          // Navigate to Papertrade tab to see the position
+          window.dispatchEvent(new CustomEvent('switchToPapertrade'));
+        } catch (error: any) {
+          console.error('[Flow Trade] Error executing trade:', error);
+          alert(`Failed to execute trade: ${error.message || 'Unknown error'}`);
+        }
+      } else {
+        // Guest mode - send trade data to Papertrade via custom event
+        const tradeData = {
+          ticker,
+          action: action.toUpperCase() as 'BUY' | 'SELL',
+          quantity,
+          price,
+          total: totalCost,
+          assetType: 'Option' as const,
+          optionType: optionDetails.optionType,
+          strikePrice: optionDetails.strikePrice,
+          expirationDate: optionDetails.expirationDate,
+          currentPrice: stockPrice,
+          premium: price // Store premium separately
+        };
+
+        // Dispatch event to Papertrade to execute the trade
+        console.log('[Flow Trade] Dispatching executeFlowTrade event with data:', tradeData);
+        const event = new CustomEvent('executeFlowTrade', { detail: tradeData });
+        window.dispatchEvent(event);
+        
+        // Small delay to ensure event is processed before alert
+        setTimeout(() => {
+          alert(`✅ ${action.toUpperCase()} order executed successfully!\n${quantity} ${optionDetails.optionType} contract(s) of ${ticker}\nStrike: $${optionDetails.strikePrice.toFixed(2)}\nPremium: $${price.toFixed(2)}/contract\nTotal: $${totalCost.toFixed(2)}\n\nSwitching to Papertrade to view your position...`);
+          
+          // Navigate to Papertrade tab
+          window.dispatchEvent(new CustomEvent('switchToPapertrade'));
+        }, 200);
+      }
+    } catch (error: any) {
+      console.error('[Flow Trade] Error:', error);
+      alert(`Failed to execute trade: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsExecutingTrade(false);
+    }
   };
 
   return (
     <div className="unusual-flow-feed" ref={feedRef}>
       <div className="flow-feed-header">
         <h2>Unusual Flows</h2>
-        <p className="flow-feed-subtitle">Real-time options flow from FL0WG0D (past 24 hours)</p>
+        <p className="flow-feed-subtitle">Real-time options flow from FL0WG0D (past 2 days)</p>
       </div>
       <div className="flow-feed-content">
-        {!isAuthenticated ? (
-          <div className="flow-feed-empty">
-            <p>Please log in to view unusual flows.</p>
-          </div>
-        ) : flows.length === 0 ? (
+        {flows.length === 0 ? (
           <div className="flow-feed-empty">
             <div className="flow-feed-empty-icon">
               <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
@@ -232,17 +419,18 @@ const UnusualFlowFeed: React.FC = () => {
               </svg>
             </div>
             <p>Loading unusual flows...</p>
-            <p className="flow-feed-empty-hint">Fetching flow images from FL0WG0D (past 24 hours)</p>
-            {process.env.NODE_ENV === 'development' && (
-              <div className="flow-feed-debug-info">
-                <p><strong>Debug Info:</strong></p>
-                <p>Authenticated: {isAuthenticated ? '✅ Yes' : '❌ No'}</p>
-                <p>Flows: {flows.length}</p>
-                <p style={{ marginTop: '8px', fontSize: '11px', opacity: 0.7 }}>
-                  Check browser console (F12) for detailed logs with [Unusual Flows] prefix.
-                </p>
-              </div>
-            )}
+            <p className="flow-feed-empty-hint">Fetching flow images from FL0WG0D (past 2 days)</p>
+            <div className="flow-feed-debug-info">
+              <p><strong>Status:</strong></p>
+              <p>Authenticated: {isAuthenticated ? '✅ Yes' : '❌ No (flows still load)'}</p>
+              <p>Flows found: {flows.length}</p>
+              <p style={{ marginTop: '12px', fontSize: '12px', opacity: 0.8 }}>
+                💡 Check browser console (F12) for detailed logs with [Unusual Flows] prefix.
+              </p>
+              <p style={{ marginTop: '8px', fontSize: '11px', opacity: 0.6 }}>
+                If no flows appear, FL0WG0D may not have posted recently, or Twitter API may be unavailable.
+              </p>
+            </div>
           </div>
         ) : (
           <div className="flow-feed-layout">
@@ -274,6 +462,7 @@ const UnusualFlowFeed: React.FC = () => {
                     flow={selectedFlow}
                     analysis={analysis}
                     onTrade={handleTrade}
+                    isExecutingTrade={isExecutingTrade}
                   />
                 ) : (
                   <div className="analysis-loading">
@@ -399,9 +588,10 @@ interface FlowAnalysisPanelProps {
   flow: UnusualFlow;
   analysis: FlowAnalysis;
   onTrade: (action: 'buy' | 'sell') => void;
+  isExecutingTrade?: boolean;
 }
 
-const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({ flow, analysis, onTrade }) => {
+const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({ flow, analysis, onTrade, isExecutingTrade = false }) => {
   return (
     <div className="flow-analysis">
       <div className="analysis-header">
@@ -463,21 +653,23 @@ const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({ flow, analysis, o
           <button
             className={`action-button buy ${analysis.action === 'buy' ? 'recommended' : ''}`}
             onClick={() => onTrade('buy')}
+            disabled={isExecutingTrade}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="20 6 9 17 4 12" />
             </svg>
-            Buy
+            {isExecutingTrade ? 'Executing...' : 'Buy'}
           </button>
           <button
             className={`action-button sell ${analysis.action === 'sell' ? 'recommended' : ''}`}
             onClick={() => onTrade('sell')}
+            disabled={isExecutingTrade}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-            Sell
+            {isExecutingTrade ? 'Executing...' : 'Sell'}
           </button>
         </div>
       </div>
