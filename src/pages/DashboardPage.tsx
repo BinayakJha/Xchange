@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
 import Feed from '../components/Feed';
 import SentimentSidebar from '../components/SentimentSidebar';
@@ -10,16 +10,10 @@ import './DashboardPage.css';
 const DashboardPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'feed' | 'unusual-flow' | 'papertrade' | 'ai-chat'>('feed');
 
-  // Listen for switch to Papertrade event from UnusualFlowFeed
-  React.useEffect(() => {
-    const handleSwitchToPapertrade = () => {
-      setActiveTab('papertrade');
-    };
-
+  useEffect(() => {
+    const handleSwitchToPapertrade = () => setActiveTab('papertrade');
     window.addEventListener('switchToPapertrade', handleSwitchToPapertrade);
-    return () => {
-      window.removeEventListener('switchToPapertrade', handleSwitchToPapertrade);
-    };
+    return () => window.removeEventListener('switchToPapertrade', handleSwitchToPapertrade);
   }, []);
 
   return (

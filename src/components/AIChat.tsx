@@ -2,22 +2,25 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import SectorHeatmap from './SectorHeatmap';
 import { Stock } from '../types';
-import { positionsApi } from '../services/userDataApi';
-import { cashBalanceApi, tradesApi } from '../services/papertradeApi';
 import './AIChat.css';
+
+type TradeSummary = {
+  ticker: string;
+  action: 'buy' | 'sell';
+  quantity: number;
+  price: number;
+  total: number;
+  assetType: 'stock' | 'crypto' | 'option';
+};
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  tradeExecuted?: {
-    ticker: string;
-    action: 'buy' | 'sell';
-    quantity: number;
-    price: number;
-    total: number;
-  };
+  tradeExecuted?: TradeSummary;
+  tradeSummary?: string[];
+  tradeErrors?: string[];
   heatmap?: {
     sector: string;
     stocks: Stock[];
@@ -25,12 +28,13 @@ interface Message {
 }
 
 const AIChat: React.FC = () => {
-  const { watchlist, positions, addPosition, removePosition, isAuthenticated, useDatabase } = useApp();
+  const { watchlist, paperPositions, paperCash, executePaperTrade } = useApp();
   const [messages, setMessages] = useState<Message[]>([
     {
-      id: '1',
+      id: 'msg-intro',
       role: 'assistant',
-      content: "Hi! I'm your AI trading assistant. I can help you analyze stocks, execute paper trades, and answer questions about the market. Try saying things like:\n\n• 'Buy $1000 worth of AAPL'\n• 'What's the sentiment on TSLA?'\n• 'Show me my positions'\n• 'Sell 10 shares of NVDA'\n• 'Show me a heatmap of the technology sector'\n• 'Show me a heatmap of crypto'\n• 'Visualize the DeFi sector'\n\nHow can I help you today?",
+      content:
+        "Hi! I'm your AI market assistant. I can answer questions, analyze sentiment, visualize heatmaps, and execute paper trades for stocks, crypto, or options. Try commands such as:\n\n• 'What's the sentiment on TSLA?'\n• 'Show me a heatmap of the technology sector'\n• 'Buy $3,000 of AAPL'\n• 'Sell 2 contracts of NVDA 500C expiring next week'\n• 'Put $5k to work wherever you think best'\n\nHow can I help you today?",
       timestamp: new Date(),
     },
   ]);
@@ -47,117 +51,66 @@ const AIChat: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  const executeTrade = async (ticker: string, action: 'buy' | 'sell', quantity: number, price: number) => {
-    try {
-      // Validate price is reasonable (not zero or negative)
-      if (!price || price <= 0) {
-        return { success: false, error: `Invalid price: $${price}. Cannot execute trade.` };
+  const formatTradeSummary = (trade: TradeSummary) => {
+    const units =
+      trade.assetType === 'option'
+        ? 'contract(s)'
+        : trade.assetType === 'crypto'
+          ? 'token(s)'
+          : 'share(s)';
+    return `${trade.action.toUpperCase()} ${trade.quantity} ${units} of ${trade.ticker} @ $${trade.price.toFixed(
+      2,
+    )} (Total: $${trade.total.toFixed(2)})`;
+  };
+
+  const executeTradeAction = async (tradeAction: any) => {
+    const ticker = (tradeAction.ticker || '').toString().toUpperCase();
+    const action: 'buy' | 'sell' = (tradeAction.action || 'buy').toString().toLowerCase() === 'sell' ? 'sell' : 'buy';
+    const assetType = (tradeAction.assetType || 'stock').toString().toLowerCase();
+
+    const quantity = Number(tradeAction.quantity);
+    const price = Number(tradeAction.price);
+    const amount = Number(tradeAction.amount);
+
+    const normalizedOptionType: 'PUT' | 'CALL' =
+      tradeAction.optionDetails &&
+        tradeAction.optionDetails.optionType &&
+        tradeAction.optionDetails.optionType.toString().toUpperCase() === 'PUT'
+        ? 'PUT'
+        : 'CALL';
+
+    const optionDetails = tradeAction.optionDetails
+      ? {
+        optionType: normalizedOptionType,
+        strikePrice: Number(tradeAction.optionDetails.strikePrice),
+        expirationDate: tradeAction.optionDetails.expirationDate,
       }
+      : undefined;
 
-      // For buy orders, validate we have enough information
-      if (action === 'buy' && (!quantity || quantity <= 0)) {
-        return { success: false, error: `Invalid quantity: ${quantity}. Cannot execute trade.` };
-      }
+    const result = await executePaperTrade({
+      ticker,
+      action,
+      assetType: assetType === 'crypto' ? 'crypto' : assetType === 'option' ? 'option' : 'stock',
+      quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : undefined,
+      price: Number.isFinite(price) && price > 0 ? price : undefined,
+      amount: Number.isFinite(amount) && amount > 0 ? amount : undefined,
+      optionDetails,
+    });
 
-      const totalCost = quantity * price;
-
-      // Use Papertrade system for both authenticated and guest mode
-      if (isAuthenticated && useDatabase) {
-        try {
-          const cashBalance = await cashBalanceApi.get();
-          
-          if (action === 'buy' && totalCost > cashBalance) {
-            return { success: false, error: `Insufficient funds! You need $${totalCost.toFixed(2)} but only have $${cashBalance.toFixed(2)}.` };
-          }
-
-          // Create trade record
-          await tradesApi.create({
-            ticker: ticker,
-            action: action.toUpperCase() as 'BUY' | 'SELL',
-            quantity: quantity,
-            price: price,
-            total: totalCost,
-            type: 'stock'
-          });
-
-          // Update position
-          if (action === 'buy') {
-            const dbPositions = await positionsApi.getAll();
-            const existingPosition = dbPositions.find(p => 
-              p.ticker === ticker && p.type === 'stock'
-            );
-
-            if (existingPosition) {
-              await positionsApi.update(existingPosition.id!, {
-                quantity: existingPosition.quantity + quantity,
-                currentPrice: price
-              });
-            } else {
-              await positionsApi.add({
-                ticker: ticker,
-                quantity: quantity,
-                entryPrice: price,
-                currentPrice: price,
-                type: 'stock'
-              });
-            }
-
-            // Update cash balance
-            const newBalance = cashBalance - totalCost;
-            await cashBalanceApi.update(newBalance);
-          } else {
-            // SELL
-            const dbPositions = await positionsApi.getAll();
-            const dbPosition = dbPositions.find(p => p.ticker === ticker && p.type === 'stock');
-
-            if (!dbPosition || dbPosition.quantity < quantity) {
-              return { success: false, error: `Insufficient shares to sell! You don't have enough ${ticker} shares.` };
-            }
-
-            if (dbPosition.quantity <= quantity) {
-              await positionsApi.remove(dbPosition.id!);
-            } else {
-              await positionsApi.update(dbPosition.id!, {
-                quantity: dbPosition.quantity - quantity,
-                currentPrice: price
-              });
-            }
-
-            // Update cash balance
-            const newBalance = cashBalance + totalCost;
-            await cashBalanceApi.update(newBalance);
-          }
-
-          // Trigger position refresh in Papertrade
-          window.dispatchEvent(new CustomEvent('refreshPapertradePositions'));
-          
-          return { success: true, total: totalCost };
-        } catch (error: any) {
-          console.error('[AI Trade] Error executing trade:', error);
-          return { success: false, error: error.message || 'Failed to execute trade' };
-        }
-      } else {
-        // Guest mode - send trade data to Papertrade via custom event
-        const tradeData = {
-          ticker,
-          action: action.toUpperCase() as 'BUY' | 'SELL',
-          quantity,
-          price,
-          total: totalCost,
-          assetType: 'Stock' as const,
-          currentPrice: price
-        };
-
-        // Dispatch event to Papertrade to execute the trade
-        console.log('[AI Trade] Dispatching executeFlowTrade event with data:', tradeData);
-        window.dispatchEvent(new CustomEvent('executeFlowTrade', { detail: tradeData }));
-        
-        return { success: true, total: totalCost };
-      }
-    } catch (error) {
-      console.error('Error executing trade:', error);
-      return { success: false, error: 'Failed to execute trade' };
+    if (result.success && result.trade) {
+      const trade: TradeSummary = {
+        ticker: result.trade.symbol,
+        action: result.trade.action === 'SELL' ? 'sell' : 'buy',
+        quantity: result.trade.quantity,
+        price: result.trade.price,
+        total: result.trade.total,
+        assetType: result.trade.assetType,
+      };
+      window.dispatchEvent(new CustomEvent('switchToPapertrade'));
+      return { success: true, trade, summary: formatTradeSummary(trade) };
     }
+
+    return { success: false, error: result.error || 'Trade failed' };
   };
 
   const handleSend = async () => {
@@ -183,15 +136,15 @@ const AIChat: React.FC = () => {
         body: JSON.stringify({
           message: userMessage.content,
           context: {
-            watchlist: watchlist.map(w => w.ticker),
-            positions: positions.map(p => ({
-              ticker: p.ticker,
+            watchlist: watchlist.map((w) => w.ticker),
+            positions: paperPositions.map((p) => ({
+              ticker: p.symbol,
               quantity: p.quantity,
-              entryPrice: p.entryPrice,
+              averagePrice: p.averagePrice,
               currentPrice: p.currentPrice,
-              pnl: p.pnl,
-              type: p.type,
+              assetType: p.assetType,
             })),
+            buyingPower: paperCash,
           },
         }),
       });
@@ -201,86 +154,52 @@ const AIChat: React.FC = () => {
       }
 
       const data = await response.json();
-      
-      let assistantMessage: Message = {
+
+      const assistantMessage: Message = {
         id: `msg-${Date.now()}`,
         role: 'assistant',
         content: data.response || 'I apologize, but I encountered an error processing your request.',
         timestamp: new Date(),
       };
 
-      // Add heatmap data if available
-      if (data.heatmap) {
-        assistantMessage.heatmap = data.heatmap;
+      const executedSummaries: string[] = [];
+      const failedSummaries: string[] = [];
+      const executedTrades: TradeSummary[] = [];
+
+      const processTradeAction = async (action: any) => {
+        const result = await executeTradeAction(action);
+        if (result.success && result.trade && result.summary) {
+          executedSummaries.push(result.summary);
+          executedTrades.push(result.trade);
+        } else if (result.error) {
+          const label = (action.ticker || action.symbol || 'Unknown').toString().toUpperCase();
+          failedSummaries.push(`${label}: ${result.error}`);
+        }
+      };
+
+      if (Array.isArray(data.tradeActions) && data.tradeActions.length > 0) {
+        for (const action of data.tradeActions) {
+          await processTradeAction(action);
+        }
+      } else if (data.tradeAction) {
+        await processTradeAction(data.tradeAction);
       }
 
-      // Check if AI wants to execute multiple trades (diversification)
-      if (data.tradeActions && Array.isArray(data.tradeActions)) {
-        const executedTrades: Array<{ ticker: string; action: 'buy' | 'sell'; quantity: number; price: number; total: number }> = [];
-        const failedTrades: Array<{ ticker: string; error: string }> = [];
-        
-        // Execute all trades
-        for (const trade of data.tradeActions) {
-          const { ticker, action, quantity, price } = trade;
-          const tradeResult = await executeTrade(ticker, action, quantity, price);
-          
-          if (tradeResult.success) {
-            executedTrades.push({
-              ticker,
-              action,
-              quantity,
-              price,
-              total: quantity * price,
-            });
-          } else {
-            failedTrades.push({
-              ticker,
-              error: tradeResult.error || 'Unknown error',
-            });
-          }
-        }
-        
-        // Build summary message
-        let summary = data.response + '\n\n';
-        
-        if (executedTrades.length > 0) {
-          summary += '✅ Executed Trades:\n';
-          executedTrades.forEach(trade => {
-            summary += `  • ${trade.action.toUpperCase()} ${trade.quantity} ${trade.ticker} @ $${trade.price.toFixed(2)} ($${trade.total.toFixed(2)})\n`;
-          });
-        }
-        
-        if (failedTrades.length > 0) {
-          summary += '\n❌ Failed Trades:\n';
-          failedTrades.forEach(trade => {
-            summary += `  • ${trade.ticker}: ${trade.error}\n`;
-          });
-        }
-        
-        assistantMessage.content = summary;
-        
-        // Show first executed trade in badge (for UI display)
-        if (executedTrades.length > 0) {
-          assistantMessage.tradeExecuted = executedTrades[0];
-        }
+      let summaryText = data.response || '';
+      if (executedSummaries.length > 0) {
+        summaryText += '\n\n✅ Executed Trades:\n' + executedSummaries.map((s) => `  • ${s}`).join('\n');
+        assistantMessage.tradeSummary = executedSummaries;
+        assistantMessage.tradeExecuted = executedTrades[0];
       }
-      // Check if AI wants to execute a single trade
-      else if (data.tradeAction) {
-        const { ticker, action, quantity, price } = data.tradeAction;
-        const tradeResult = await executeTrade(ticker, action, quantity, price);
-        
-        if (tradeResult.success) {
-          assistantMessage.tradeExecuted = {
-            ticker,
-            action,
-            quantity,
-            price,
-            total: quantity * price,
-          };
-          assistantMessage.content = data.response + `\n\n✅ Trade executed: ${action.toUpperCase()} ${quantity} shares of ${ticker} at $${price.toFixed(2)} (Total: $${(quantity * price).toFixed(2)})`;
-        } else {
-          assistantMessage.content = data.response + `\n\n❌ Trade failed: ${tradeResult.error || 'Unable to execute trade'}`;
-        }
+      if (failedSummaries.length > 0) {
+        summaryText += '\n\n⚠️ Unable to execute:\n' + failedSummaries.map((s) => `  • ${s}`).join('\n');
+        assistantMessage.tradeErrors = failedSummaries;
+      }
+
+      assistantMessage.content = summaryText.trim();
+
+      if (data.heatmap) {
+        assistantMessage.heatmap = data.heatmap;
       }
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -314,7 +233,7 @@ const AIChat: React.FC = () => {
       <div className="chat-header">
         <div className="chat-header-info">
           <h2>AI Trading Assistant</h2>
-          <p>Ask me anything about stocks, trading, or execute paper trades</p>
+          <p>Ask about the market, explore heatmaps, or let me build a paper portfolio for you.</p>
         </div>
       </div>
 
@@ -334,23 +253,47 @@ const AIChat: React.FC = () => {
             </div>
             <div className="message-content">
               <div className="message-text">{message.content}</div>
+
               {message.heatmap && (
                 <div className="heatmap-container">
                   <SectorHeatmap sector={message.heatmap.sector} stocks={message.heatmap.stocks} />
                 </div>
               )}
+
+              {message.tradeSummary && message.tradeSummary.length > 0 && (
+                <div className="trade-summary">
+                  <h4>Executed Trades</h4>
+                  <ul>
+                    {message.tradeSummary.map((summary, index) => (
+                      <li key={`${message.id}-trade-${index}`}>{summary}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {message.tradeErrors && message.tradeErrors.length > 0 && (
+                <div className="trade-errors">
+                  <h4>Execution Issues</h4>
+                  <ul>
+                    {message.tradeErrors.map((summary, index) => (
+                      <li key={`${message.id}-error-${index}`}>{summary}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {message.tradeExecuted && (
                 <div className="trade-executed-badge">
                   <span className="trade-icon">💰</span>
-                  <span>
-                    {message.tradeExecuted.action.toUpperCase()} {message.tradeExecuted.quantity} {message.tradeExecuted.ticker} @ ${message.tradeExecuted.price.toFixed(2)}
-                  </span>
+                  <span>{formatTradeSummary(message.tradeExecuted)}</span>
                 </div>
               )}
+
               <div className="message-time">{formatTime(message.timestamp)}</div>
             </div>
           </div>
         ))}
+
         {isLoading && (
           <div className="message assistant">
             <div className="message-avatar">
@@ -359,7 +302,7 @@ const AIChat: React.FC = () => {
               </svg>
             </div>
             <div className="message-content">
-              <div className="typing-indicator">
+              <div className="message-typing">
                 <span></span>
                 <span></span>
                 <span></span>
@@ -367,30 +310,24 @@ const AIChat: React.FC = () => {
             </div>
           </div>
         )}
+
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="chat-input-container">
+      <div className="chat-input">
         <textarea
           ref={inputRef}
-          className="chat-input"
-          placeholder="Ask me anything... (e.g., 'Buy $1000 worth of AAPL')"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyPress={handleKeyPress}
-          rows={1}
-          disabled={isLoading}
+          onKeyDown={handleKeyPress}
+          placeholder="Ask about the market, request a heatmap, or tell me how you want to invest..."
+          rows={3}
         />
-        <button
-          className="chat-send-button"
-          onClick={handleSend}
-          disabled={!input.trim() || isLoading}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22 2 15 22 11 13 2 9 22 2" />
-          </svg>
-        </button>
+        <div className="chat-actions">
+          <button className="send-button" onClick={handleSend} disabled={isLoading || !input.trim()}>
+            {isLoading ? 'Thinking...' : 'Send'}
+          </button>
+        </div>
       </div>
     </div>
   );

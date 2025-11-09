@@ -6,14 +6,57 @@ import {
   Position,
   Stock,
   MarketSentiment,
-  PapertradeSuggestion,
   OptionSuggestion,
   MarketInsight,
   UnusualFlow,
 } from '../types';
-import { allStocks, mockPapertradeSuggestions, mockOptionSuggestions } from '../data/mockData';
 import { getStockQuote, updateStockPrices as fetchStockPrices } from '../services/stockApi';
+import { mockOptionSuggestions } from '../data/mockData';
 // Simple email/password authentication stored in localStorage
+
+type PaperAssetType = 'stock' | 'crypto' | 'option';
+
+interface PaperOptionDetails {
+  optionType: 'CALL' | 'PUT';
+  strikePrice: number;
+  expirationDate: string;
+}
+
+interface PaperPosition {
+  id: string;
+  symbol: string;
+  assetType: PaperAssetType;
+  quantity: number;
+  averagePrice: number;
+  currentPrice: number;
+  totalValue: number;
+  pnl: number;
+  pnlPercent: number;
+  optionDetails?: PaperOptionDetails;
+}
+
+interface PaperTrade {
+  id: string;
+  timestamp: string;
+  symbol: string;
+  action: 'BUY' | 'SELL';
+  quantity: number;
+  price: number;
+  total: number;
+  assetType: PaperAssetType;
+  optionDetails?: PaperOptionDetails;
+}
+
+interface ExecutePaperTradeInput {
+  ticker: string;
+  action: 'buy' | 'sell';
+  quantity?: number;
+  price?: number;
+  amount?: number;
+  assetType?: PaperAssetType;
+  optionDetails?: PaperOptionDetails;
+  note?: string;
+}
 
 interface AppContextType {
   watchlist: WatchlistItem[];
@@ -26,7 +69,6 @@ interface AppContextType {
   marketSentiment: MarketSentiment | null;
   updateMarketSentiment: (sentiment: MarketSentiment) => void;
   marketInsights: MarketInsight[];
-  tradeSuggestions: PapertradeSuggestion[];
   optionSuggestions: OptionSuggestion[];
   unusualFlows: UnusualFlow[];
   positions: Position[];
@@ -37,6 +79,12 @@ interface AppContextType {
   setAuthenticated: (value: boolean) => void;
   useDatabase: boolean;
   setUseDatabase: (value: boolean) => void;
+  paperCash: number;
+  paperPositions: PaperPosition[];
+  paperTrades: PaperTrade[];
+  executePaperTrade: (trade: ExecutePaperTradeInput) => Promise<{ success: boolean; trade?: PaperTrade; error?: string }>;
+  resetPapertrade: () => void;
+  updatePaperPositionPrices: (priceMap: Record<string, number>) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -55,11 +103,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [sentiments, setSentiments] = useState<Record<string, Sentiment>>({});
   const [marketSentiment, setMarketSentiment] = useState<MarketSentiment | null>(null);
   const [marketInsights, setMarketInsights] = useState<MarketInsight[]>([]);
-  const [tradeSuggestions, setTradeSuggestions] = useState<PapertradeSuggestion[]>(mockPapertradeSuggestions);
   const [optionSuggestions, setOptionSuggestions] = useState<OptionSuggestion[]>(mockOptionSuggestions);
   const [unusualFlows, setUnusualFlows] = useState<UnusualFlow[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
-  const [isAuthenticated, setAuthenticated] = useState(false);
+  const [paperCash, setPaperCash] = useState<number>(100000);
+  const [paperPositions, setPaperPositions] = useState<PaperPosition[]>([]);
+  const [paperTrades, setPaperTrades] = useState<PaperTrade[]>([]);
+  const [paperStorageKey, setPaperStorageKey] = useState<string>('papertrade_guest');
+  const [isAuthenticated, setAuthenticated] = useState(() => localStorage.getItem('isAuthenticated') === 'true');
   const [useDatabase, setUseDatabase] = useState(false);
   const isUpdatingPricesRef = React.useRef(false);
   const isFetchingTweetsRef = React.useRef(false);
@@ -68,13 +119,61 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const lastMarketAnalysisRef = React.useRef<number>(0);
   const influentialUsersRef = React.useRef<Record<string, string[]>>({}); // Cache of influential users per ticker
 
+  const persistPapertradeState = useCallback((cash: number, positions: PaperPosition[], trades: PaperTrade[]) => {
+    try {
+      const payload = {
+        cash,
+        positions,
+        trades,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem(paperStorageKey, JSON.stringify(payload));
+    } catch (error) {
+      console.error('[Papertrade] Failed to persist state:', error);
+    }
+  }, [paperStorageKey]);
+
+  const loadPapertradeState = useCallback(() => {
+    try {
+      const stored = localStorage.getItem(paperStorageKey);
+      if (!stored) {
+        setPaperCash(100000);
+        setPaperPositions([]);
+        setPaperTrades([]);
+        return;
+      }
+      const parsed = JSON.parse(stored);
+      setPaperCash(typeof parsed.cash === 'number' ? parsed.cash : 100000);
+      setPaperPositions(Array.isArray(parsed.positions) ? parsed.positions : []);
+      setPaperTrades(Array.isArray(parsed.trades) ? parsed.trades : []);
+    } catch (error) {
+      console.error('[Papertrade] Failed to load state:', error);
+      setPaperCash(100000);
+      setPaperPositions([]);
+      setPaperTrades([]);
+    }
+  }, [paperStorageKey]);
+
+  useEffect(() => {
+    const email = isAuthenticated ? (localStorage.getItem('authEmail') || 'guest') : 'guest';
+    setPaperStorageKey(`papertrade_${email}`);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    loadPapertradeState();
+  }, [loadPapertradeState]);
+
+  useEffect(() => {
+    persistPapertradeState(paperCash, paperPositions, paperTrades);
+  }, [paperCash, paperPositions, paperTrades, persistPapertradeState]);
+
   const addToWatchlist = useCallback((ticker: string) => {
     try {
       if (!ticker || !ticker.trim()) {
         console.warn('Invalid ticker provided to addToWatchlist');
         return;
       }
-      
+
       const normalizedTicker = ticker.trim().toUpperCase();
       setWatchlist((prev) => {
         if (prev.some((item) => item.ticker === normalizedTicker)) {
@@ -110,6 +209,225 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const removePosition = useCallback((id: string) => {
     setPositions((prev) => prev.filter((p) => p.id !== id));
   }, []);
+
+  const resetPapertrade = useCallback(() => {
+    const initialCash = 100000;
+    setPaperCash(initialCash);
+    setPaperPositions([]);
+    setPaperTrades([]);
+    persistPapertradeState(initialCash, [], []);
+  }, [persistPapertradeState]);
+
+  const updatePaperPositionPrices = useCallback((priceMap: Record<string, number>) => {
+    const updatedPositions = paperPositions.map((position) => {
+      const price = priceMap[position.symbol];
+      if (!price || price <= 0) {
+        return position;
+      }
+
+      const multiplier = position.assetType === 'option' ? 100 : 1;
+      const totalValue = price * position.quantity * multiplier;
+      const pnl = (price - position.averagePrice) * position.quantity * multiplier;
+      const costBasis = position.averagePrice * position.quantity * multiplier;
+      const pnlPercent = costBasis !== 0 ? (pnl / costBasis) * 100 : 0;
+
+      return {
+        ...position,
+        currentPrice: price,
+        totalValue,
+        pnl,
+        pnlPercent,
+      };
+    });
+
+    setPaperPositions(updatedPositions);
+    persistPapertradeState(paperCash, updatedPositions, paperTrades);
+  }, [paperPositions, paperCash, paperTrades, persistPapertradeState]);
+
+  const executePaperTrade = useCallback(async (trade: ExecutePaperTradeInput) => {
+    try {
+      const ticker = trade.ticker.trim().toUpperCase();
+      const assetType: PaperAssetType = trade.assetType ? trade.assetType : 'stock';
+      let price = trade.price && trade.price > 0 ? trade.price : undefined;
+
+      if (!price) {
+        try {
+          const quote = await getStockQuote(ticker);
+          price = quote?.regularMarketPrice || quote?.price || undefined;
+        } catch (error) {
+          console.error('[Papertrade] Failed to fetch quote for', ticker, error);
+        }
+      }
+
+      if (!price || price <= 0) {
+        return { success: false, error: `Unable to determine price for ${ticker}.` };
+      }
+
+      let quantity = trade.quantity && trade.quantity > 0 ? trade.quantity : undefined;
+      if ((!quantity || quantity <= 0) && trade.amount && trade.amount > 0) {
+        quantity = trade.amount / price;
+      }
+
+      if (!quantity || quantity <= 0) {
+        return { success: false, error: `Invalid quantity specified for ${ticker}.` };
+      }
+
+      // For stocks, round down to whole shares
+      if (assetType === 'stock') {
+        quantity = Math.floor(quantity);
+        if (quantity <= 0) {
+          return { success: false, error: `Invalid quantity specified for ${ticker}.` };
+        }
+      }
+
+      // For options, round down to whole contracts
+      if (assetType === 'option') {
+        quantity = Math.floor(quantity);
+        if (quantity <= 0) {
+          return { success: false, error: 'Option trades must be at least 1 contract.' };
+        }
+      }
+
+      // For crypto, allow fractional quantities (no rounding)
+
+      const optionDetails: PaperOptionDetails | undefined = assetType === 'option' && trade.optionDetails
+        ? {
+          optionType: trade.optionDetails.optionType === 'PUT' ? 'PUT' : 'CALL',
+          strikePrice: trade.optionDetails.strikePrice,
+          expirationDate: trade.optionDetails.expirationDate,
+        }
+        : undefined;
+
+      if (assetType === 'option' && !optionDetails) {
+        return { success: false, error: 'Option trades require strike price and expiration date.' };
+      }
+
+      const multiplier = assetType === 'option' ? 100 : 1;
+      const totalCost = price * quantity * multiplier;
+
+      let updatedCash = paperCash;
+      const updatedPositions = [...paperPositions];
+      const updatedTrades = [...paperTrades];
+
+      const matchIndex = updatedPositions.findIndex((position) => {
+        if (position.symbol !== ticker || position.assetType !== assetType) {
+          return false;
+        }
+
+        if (assetType === 'option') {
+          if (!optionDetails || !position.optionDetails) {
+            return false;
+          }
+          return (
+            position.optionDetails.optionType === optionDetails.optionType &&
+            position.optionDetails.strikePrice === optionDetails.strikePrice &&
+            position.optionDetails.expirationDate === optionDetails.expirationDate
+          );
+        }
+
+        return true;
+      });
+
+      if (trade.action === 'buy') {
+        if (totalCost > updatedCash) {
+          return { success: false, error: `Insufficient buying power. Need $${totalCost.toFixed(2)} but only have $${updatedCash.toFixed(2)}.` };
+        }
+
+        updatedCash -= totalCost;
+
+        if (matchIndex >= 0) {
+          const existing = updatedPositions[matchIndex];
+          const newQuantity = existing.quantity + quantity;
+          const newAverage = ((existing.averagePrice * existing.quantity) + (price * quantity)) / newQuantity;
+          const totalValue = newQuantity * price * multiplier;
+          const pnl = (price - newAverage) * newQuantity * multiplier;
+          const costBasis = newAverage * newQuantity * multiplier;
+          const pnlPercent = costBasis !== 0 ? (pnl / costBasis) * 100 : 0;
+
+          updatedPositions[matchIndex] = {
+            ...existing,
+            quantity: newQuantity,
+            averagePrice: newAverage,
+            currentPrice: price,
+            totalValue,
+            pnl,
+            pnlPercent,
+          };
+        } else {
+          const totalValue = quantity * price * multiplier;
+          updatedPositions.push({
+            id: `position-${Date.now()}`,
+            symbol: ticker,
+            assetType,
+            quantity,
+            averagePrice: price,
+            currentPrice: price,
+            totalValue,
+            pnl: 0,
+            pnlPercent: 0,
+            optionDetails,
+          });
+        }
+      } else {
+        if (matchIndex < 0) {
+          return { success: false, error: `You do not hold any ${ticker} to sell.` };
+        }
+
+        const existing = updatedPositions[matchIndex];
+        if (quantity > existing.quantity) {
+          return { success: false, error: `Insufficient quantity. You only hold ${existing.quantity} ${existing.assetType === 'option' ? 'contract(s)' : 'share(s)'} of ${ticker}.` };
+        }
+
+        updatedCash += totalCost;
+        const remainingQuantity = existing.quantity - quantity;
+
+        if (remainingQuantity === 0) {
+          updatedPositions.splice(matchIndex, 1);
+        } else {
+          const totalValue = remainingQuantity * price * multiplier;
+          const pnl = (price - existing.averagePrice) * remainingQuantity * multiplier;
+          const costBasis = existing.averagePrice * remainingQuantity * multiplier;
+          const pnlPercent = costBasis !== 0 ? (pnl / costBasis) * 100 : 0;
+
+          updatedPositions[matchIndex] = {
+            ...existing,
+            quantity: remainingQuantity,
+            currentPrice: price,
+            totalValue,
+            pnl,
+            pnlPercent,
+          };
+        }
+      }
+
+      const newTrade: PaperTrade = {
+        id: `trade-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        symbol: ticker,
+        action: trade.action.toUpperCase() as 'BUY' | 'SELL',
+        quantity,
+        price,
+        total: totalCost,
+        assetType,
+        optionDetails,
+      };
+
+      updatedTrades.unshift(newTrade);
+      if (updatedTrades.length > 200) {
+        updatedTrades.pop();
+      }
+
+      setPaperCash(updatedCash);
+      setPaperPositions(updatedPositions);
+      setPaperTrades(updatedTrades);
+      persistPapertradeState(updatedCash, updatedPositions, updatedTrades);
+
+      return { success: true, trade: newTrade };
+    } catch (error) {
+      console.error('[Papertrade] executePaperTrade error:', error);
+      return { success: false, error: 'Failed to execute trade.' };
+    }
+  }, [paperCash, paperPositions, paperTrades, persistPapertradeState]);
 
   const updateStockPrices = useCallback(async () => {
     // Prevent concurrent calls
@@ -148,7 +466,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setPositions((prev) =>
         prev.map((pos) => {
           if (!pos || !pos.ticker) return pos;
-          
+
           const stock = priceMap.get(pos.ticker);
           if (!stock) return pos;
 
@@ -162,7 +480,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 pos.optionDetails.optionType === 'call'
                   ? Math.max(0, stock.price - pos.optionDetails.strike)
                   : Math.max(0, pos.optionDetails.strike - stock.price);
-              
+
               // Simple time value calculation (decays as expiration approaches)
               const timeValue = daysToExp > 0 ? (daysToExp / 30) * stock.price * 0.01 : 0;
               const newPremium = Math.max(0.01, intrinsicValue + timeValue);
@@ -229,7 +547,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
         // Use Grok API to get real sentiment
         const { getMultipleSentiments } = await import('../services/grokApi');
-        
+
         try {
           const result = await getMultipleSentiments(tickers);
           console.log('[Sentiment] Grok API response:', result);
@@ -272,7 +590,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const calculateSentimentFromTweets = () => {
       try {
         console.log('[Sentiment] Calculating sentiment from tweets. Total tweets:', tweets.length);
-        
+
         watchlist.forEach((item) => {
           if (!item || !item.ticker) return;
 
@@ -283,7 +601,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           // Find relevant tweets - only use tweets that actually mention this ticker
           const relevantTweets = tweets.filter((t) => {
             if (!t || !t.content) return false;
-            
+
             // First check if tweet is explicitly tagged with this ticker
             if (t.mentionedStocks && Array.isArray(t.mentionedStocks)) {
               const hasExplicitTag = t.mentionedStocks.some((mentioned) => {
@@ -293,17 +611,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               });
               if (hasExplicitTag) return true;
             }
-            
+
             // Also check tweet content for actual mentions (double-check)
             const contentUpper = t.content.toUpperCase();
             const exactPattern = new RegExp(`\\$${normalizedTicker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|\\b${normalizedTicker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
             if (exactPattern.test(t.content)) return true;
-            
+
             if (baseTicker.length >= 2) {
               const basePattern = new RegExp(`\\$${baseTicker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|\\b${baseTicker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
               if (basePattern.test(t.content)) return true;
             }
-            
+
             // Check for company name mentions
             const companyNames: Record<string, string[]> = {
               'AAPL': ['APPLE', 'IPHONE', 'IPAD', 'MACBOOK'],
@@ -317,13 +635,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               'ETH': ['ETHEREUM'],
               'SPY': ['S&P', 'SP500', 'SP 500'],
             };
-            
+
             const names = companyNames[baseTicker] || [];
             if (names.some(name => contentUpper.includes(name))) return true;
-            
+
             return false;
           });
-          
+
           console.log(`[Sentiment] Found ${relevantTweets.length} relevant tweets for ${item.ticker}`);
 
           // If no relevant tweets, use default neutral sentiment
@@ -350,9 +668,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           // Enhanced sentiment analysis with more keywords
           relevantTweets.forEach((tweet) => {
             if (!tweet || !tweet.content) return;
-            
+
             const content = tweet.content.toLowerCase();
-            
+
             // Expanded keyword lists with financial/political context
             const bullishWords = [
               'bullish', 'buy', 'up', 'growth', 'strong', 'positive', 'rise', 'gain', 'rally',
@@ -419,7 +737,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }
 
           const total = bullish + bearish + neutral;
-          
+
           // Ensure we have valid percentages that sum to 100
           let bullishPercent = total > 0 ? Math.round((bullish / total) * 100) : 33;
           let bearishPercent = total > 0 ? Math.round((bearish / total) * 100) : 33;
@@ -535,10 +853,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // Extract mentioned stocks/crypto from tweet content intelligently
       const extractMentionedTickers = (content: string): string[] => {
         if (!content) return [];
-        
+
         const contentUpper = content.toUpperCase();
         const mentioned: string[] = [];
-        
+
         // First, check if this is clearly NOT a financial tweet
         // Exclude political news, sports, entertainment, etc.
         const nonFinancialPatterns = [
@@ -547,22 +865,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           /entertainment|movie|film|actor|actress|celebrity|music|song/i,
           /weather|temperature|rain|snow|storm/i,
         ];
-        
+
         const isNonFinancial = nonFinancialPatterns.some(pattern => pattern.test(content));
         if (isNonFinancial) {
           return []; // Don't tag non-financial tweets
         }
-        
+
         // Check each watchlist ticker
         watchlistTickers.forEach((ticker) => {
           const tickerUpper = ticker.toUpperCase();
           const baseTicker = tickerUpper.includes('-') ? tickerUpper.split('-')[0] : tickerUpper;
-          
+
           // STRICT: Only match exact ticker symbols with $ prefix or as standalone word boundaries
           // This prevents false matches like "SPY" matching "spying" or "spyware"
           const dollarPattern = new RegExp(`\\$${tickerUpper.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
           const standalonePattern = new RegExp(`\\b${tickerUpper.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-          
+
           // For short tickers (3 chars or less), be extra strict - require $ or context
           if (tickerUpper.length <= 3) {
             // Only match with $ prefix for short tickers to avoid false positives
@@ -577,7 +895,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               return;
             }
           }
-          
+
           // Check for base ticker mention (for crypto like BTC-USD -> BTC)
           // Only if base ticker is different from full ticker
           if (baseTicker !== tickerUpper && baseTicker.length >= 2) {
@@ -587,7 +905,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               return;
             }
           }
-          
+
           // Check for company name mentions (only for well-known mappings)
           // Be more conservative - only match if it's clearly about the company
           const companyNames: Record<string, string[]> = {
@@ -602,7 +920,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             'ETH': ['ETHEREUM', '$ETH'],
             'SPY': ['S&P 500', 'SP500', 'SP 500 INDEX'],
           };
-          
+
           const names = companyNames[baseTicker] || [];
           // Only match if company name appears with financial context
           const hasFinancialContext = /(stock|share|price|trading|market|invest|buy|sell|earnings|revenue)/i.test(content);
@@ -613,7 +931,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             mentioned.push(ticker);
           }
         });
-        
+
         return mentioned;
       };
 
@@ -638,26 +956,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const impact = grokTweet.impact || (grokTweet.verified ? 'medium' : 'low');
             const engagement = (grokTweet.likes || 0) + (grokTweet.retweets || 0);
             const isVerified = grokTweet.verified || false;
-            
+
             // High-impact accounts that should always be included
             const highImpactAccounts = [
-              'elonmusk', 'realDonaldTrump', 'DeItaone', 'Bloomberg', 'CNBC', 
+              'elonmusk', 'realDonaldTrump', 'DeItaone', 'Bloomberg', 'CNBC',
               'Reuters', 'WSJ', 'MarketWatch', 'FederalReserve', 'JimCramer',
               'YahooFinance', 'business', 'FinancialTimes'
             ];
-            const isHighImpactAccount = highImpactAccounts.some(acc => 
+            const isHighImpactAccount = highImpactAccounts.some(acc =>
               grokTweet.username?.toLowerCase().includes(acc.toLowerCase())
             );
-            
+
             // Filter criteria: Only include if:
             // 1. High impact AND good engagement (5k+) OR from high-impact account
             // 2. Medium impact AND decent engagement (500+) OR from verified account
             // 3. Low impact ONLY if from high-impact verified account with 200+ engagement
-            const shouldInclude = 
+            const shouldInclude =
               (impact === 'high' && (engagement >= 5000 || isHighImpactAccount)) ||
               (impact === 'medium' && (engagement >= 500 || isVerified || isHighImpactAccount)) ||
               (impact === 'low' && isHighImpactAccount && engagement >= 200 && isVerified);
-            
+
             if (!shouldInclude) {
               return; // Skip low-impact tweets
             }
@@ -667,7 +985,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const marketKeywords = /(stock|market|trading|finance|economy|fed|inflation|recession|gdp|earnings|revenue|profit|loss|investment|portfolio|bull|bear|crypto|bitcoin|ethereum|dollar|yuan|euro|rate|interest|bond|equity|sector|index|wall street|dow|nasdaq|s&p|price|buy|sell|hold|call|put|option)/i;
             const hasTicker = /\$[A-Z]{1,5}\b/i.test(content); // Has $TICKER format
             const isMarketRelated = marketKeywords.test(content) || hasTicker;
-            
+
             // Exclude non-financial content
             const nonFinancialPatterns = [
               /mayoral|mayor|election|political|campaign|vote|voting|ballot/i,
@@ -676,7 +994,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               /weather|temperature|rain|snow|storm/i,
             ];
             const isNonFinancial = nonFinancialPatterns.some(pattern => pattern.test(content));
-            
+
             if (!isMarketRelated || isNonFinancial) {
               // Only include if from high-impact account (they might tweet about non-financial but still move markets)
               if (!isHighImpactAccount) {
@@ -690,17 +1008,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             }
 
             const timestamp = parseTimestamp(grokTweet.timestamp);
-            
+
             // Determine mentioned stocks intelligently
             let mentioned: string[] = [];
-            
+
             if (resolveMentionedStocks) {
               // Use provided resolver (for stock-specific tweets)
               mentioned = resolveMentionedStocks(grokTweet);
             } else {
               // For general market-moving tweets, only tag if actually mentioned
               const extracted = extractMentionedTickers(grokTweet.content);
-              
+
               // If tweet is from market-moving account but doesn't mention specific stocks,
               // only tag as "MARKET" if it's truly market-related (not sports, entertainment, politics, etc.)
               const nonFinancialPatterns = [
@@ -709,10 +1027,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 /entertainment|movie|film|actor|actress|celebrity|music|song/i,
                 /weather|temperature|rain|snow|storm/i,
               ];
-              
+
               const isNonFinancial = nonFinancialPatterns.some(pattern => pattern.test(grokTweet.content));
               const isMarketRelated = !isNonFinancial && /(stock|market|trading|finance|economy|fed|inflation|recession|gdp|earnings|revenue|profit|loss|investment|portfolio|bull|bear|crypto|bitcoin|ethereum|dollar|yuan|euro|rate|interest|bond|equity|sector|index|wall street|dow|nasdaq|s&p)/i.test(grokTweet.content);
-              
+
               if (extracted.length > 0) {
                 mentioned = extracted;
               } else if (isMarketRelated) {
@@ -725,7 +1043,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             }
 
             // Use profile image from API if available, otherwise fallback to generated avatar
-            const avatarUrl = grokTweet.profileImageUrl 
+            const avatarUrl = grokTweet.profileImageUrl
               ? grokTweet.profileImageUrl.replace('_normal', '_400x400') // Get higher resolution
               : `https://api.dicebear.com/7.x/avataaars/svg?seed=${grokTweet.username}`;
 
@@ -859,23 +1177,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 const content = (grokTweet.content || '').toUpperCase();
                 const tickerUpper = ticker.toUpperCase();
                 const baseTicker = tickerUpper.includes('-') ? tickerUpper.split('-')[0] : tickerUpper;
-                
+
                 // Check if tweet explicitly mentions this ticker
                 const hasDollarSign = new RegExp(`\\$${tickerUpper.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(grokTweet.content || '');
                 const hasStandalone = new RegExp(`\\b${tickerUpper.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(grokTweet.content || '');
                 const hasBaseTicker = baseTicker !== tickerUpper && new RegExp(`\\$${baseTicker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(grokTweet.content || '');
-                
+
                 if (hasDollarSign || hasStandalone || hasBaseTicker) {
                   return [ticker]; // Only tag with this ticker if actually mentioned
                 }
-                
+
                 // For market_impact or news tweets, only tag as MARKET if truly market-related
                 // Don't tag with all watchlist tickers - that's wrong!
                 if (grokTweet.relevance === 'market_impact' || grokTweet.relevance === 'news') {
                   const isMarketRelated = /(stock|market|trading|finance|economy|fed|inflation|recession|gdp|earnings|revenue|profit|loss|investment|portfolio|bull|bear|crypto|bitcoin|ethereum|dollar|yuan|euro|rate|interest|bond|equity|sector|index|wall street|dow|nasdaq|s&p)/i.test(grokTweet.content || '');
                   return isMarketRelated ? ['MARKET'] : [];
                 }
-                
+
                 // If tweet doesn't mention ticker, don't tag it
                 return [];
               });
@@ -945,7 +1263,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
           // Weight by impact (high impact tweets count more)
           const weight = 1; // Could be enhanced based on tweet engagement
-          
+
           if (sentiment === 'bullish') {
             bullish += weight;
           } else if (sentiment === 'bearish') {
@@ -956,7 +1274,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         });
 
         const total = bullish + bearish + neutral;
-        
+
         let bullishPercent = total > 0 ? Math.round((bullish / total) * 100) : 33;
         let bearishPercent = total > 0 ? Math.round((bearish / total) * 100) : 33;
         let neutralPercent = total > 0 ? Math.round((neutral / total) * 100) : 34;
@@ -1039,7 +1357,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
               // Build sentiment impact object from AI analysis
               const sentimentImpact: Record<string, 'bullish' | 'bearish' | 'neutral'> = {};
-              
+
               // Add sentiment for each impacted ticker
               if (analysis.sentimentPerTicker) {
                 Object.entries(analysis.sentimentPerTicker).forEach(([ticker, sentiment]) => {
@@ -1111,33 +1429,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       try {
         const now = Date.now();
         const sixHoursAgo = now - (6 * 60 * 60 * 1000); // 6 hours in milliseconds
-        
+
         // FILTER: Only include recent tweets (last 6 hours) that are market-impactful
         const recentMarketTweets = tweets.filter(tweet => {
           if (!tweet.timestamp) return false;
-          
+
           const tweetTime = tweet.timestamp.getTime();
           const isRecent = tweetTime >= sixHoursAgo;
-          
+
           // Must be recent AND market-related
           const content = tweet.content || '';
           const hasTicker = /\$[A-Z]{1,5}\b/i.test(content);
           const marketKeywords = /(stock|market|trading|finance|economy|fed|inflation|recession|gdp|earnings|revenue|profit|loss|investment|portfolio|bull|bear|crypto|bitcoin|ethereum|rate|interest|bond|equity|sector|index|price|buy|sell|hold|call|put|option)/i;
           const isMarketRelated = marketKeywords.test(content) || hasTicker;
-          
+
           // High-impact accounts are always included if recent
           const highImpactAccounts = [
-            'elonmusk', 'realDonaldTrump', 'DeItaone', 'Bloomberg', 'CNBC', 
+            'elonmusk', 'realDonaldTrump', 'DeItaone', 'Bloomberg', 'CNBC',
             'Reuters', 'WSJ', 'MarketWatch', 'FederalReserve', 'JimCramer',
             'YahooFinance', 'business', 'FinancialTimes'
           ];
-          const isHighImpactAccount = highImpactAccounts.some(acc => 
+          const isHighImpactAccount = highImpactAccounts.some(acc =>
             tweet.username?.toLowerCase().includes(acc.toLowerCase())
           );
-          
+
           return isRecent && (isMarketRelated || isHighImpactAccount);
         });
-        
+
         console.log(`[Market Sentiment] Filtered to ${recentMarketTweets.length} recent market-impactful tweets from ${tweets.length} total tweets`);
 
         // Calculate recency score (more recent = higher score)
@@ -1147,30 +1465,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           // Score: 100 for 0 hours old, decreasing to 0 for 6+ hours old
           return Math.max(0, 100 - (ageInHours * 16.67));
         };
-        
+
         // Calculate impact score based on engagement and account type
         const getImpactScore = (tweet: typeof tweets[0]) => {
           const engagement = (tweet.likes || 0) + (tweet.retweets || 0);
           const highImpactAccounts = [
-            'elonmusk', 'realDonaldTrump', 'DeItaone', 'Bloomberg', 'CNBC', 
+            'elonmusk', 'realDonaldTrump', 'DeItaone', 'Bloomberg', 'CNBC',
             'Reuters', 'WSJ', 'MarketWatch', 'FederalReserve', 'JimCramer'
           ];
-          const isHighImpactAccount = highImpactAccounts.some(acc => 
+          const isHighImpactAccount = highImpactAccounts.some(acc =>
             tweet.username?.toLowerCase().includes(acc.toLowerCase())
           );
-          
+
           // Base score from engagement (normalized to 0-100)
           const engagementScore = Math.min(100, Math.log10(engagement + 1) * 20);
-          
+
           // Bonus for high-impact accounts
           const accountBonus = isHighImpactAccount ? 30 : 0;
-          
+
           // Impact level bonus
           const impactBonus = tweet.impact === 'high' ? 20 : tweet.impact === 'medium' ? 10 : 0;
-          
+
           return engagementScore + accountBonus + impactBonus;
         };
-        
+
         // Sort by combined score: 60% recency + 40% impact
         const scoredTweets = recentMarketTweets.map(tweet => ({
           tweet,
@@ -1178,7 +1496,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           impactScore: getImpactScore(tweet),
           combinedScore: (getRecencyScore(tweet) * 0.6) + (getImpactScore(tweet) * 0.4)
         }));
-        
+
         // Group by username to ensure diversity
         const tweetsByUser = new Map<string, typeof scoredTweets>();
         scoredTweets.forEach(item => {
@@ -1256,14 +1574,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
         const insights: MarketInsight[] = Array.isArray(analysis.topInsights)
           ? analysis.topInsights
-              .filter((insight) => insight && insight.tweetId)
-              .map((insight) => {
-                const sourceTweet = insightMap[insight.tweetId];
-                return {
-                  ...insight,
-                  displayName: insight.displayName || sourceTweet?.displayName,
-                };
-              })
+            .filter((insight) => insight && insight.tweetId)
+            .map((insight) => {
+              const sourceTweet = insightMap[insight.tweetId];
+              return {
+                ...insight,
+                displayName: insight.displayName || sourceTweet?.displayName,
+              };
+            })
           : [];
 
         setMarketInsights(insights);
@@ -1282,208 +1600,266 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
         updateMarketSentiment(marketSentimentUpdate);
 
-        const normalizedStockSuggestions: PapertradeSuggestion[] = Array.isArray(analysis.stockSuggestions)
-          ? analysis.stockSuggestions
-              .filter((suggestion) => suggestion && suggestion.ticker)
-              .map((suggestion, index) => ({
-                id: suggestion.id || `stock-suggestion-${Date.now()}-${index}`,
-                ticker: suggestion.ticker,
-                action: suggestion.action || 'hold',
-                reason: suggestion.reason || 'Derived from market tweets and sentiment analysis.',
-                confidence:
-                  typeof suggestion.confidence === 'number'
-                    ? Math.min(100, Math.max(0, Math.round(suggestion.confidence)))
-                    : 50,
-                timeframe: suggestion.timeframe,
-                type: 'stock',
-                supportingTweetIds: suggestion.supportingTweetIds,
-                sourceAccounts: suggestion.sourceAccounts,
-              }))
-          : [];
-
-        setTradeSuggestions(
-          normalizedStockSuggestions.length > 0
-            ? normalizedStockSuggestions
-            : mockPapertradeSuggestions.map((suggestion) => ({ ...suggestion }))
-        );
-
         const normalizedOptionSuggestions: OptionSuggestion[] = Array.isArray(analysis.optionSuggestions)
-          ? analysis.optionSuggestions
-              .filter((suggestion) => suggestion && suggestion.ticker)
-              .map((suggestion, index) => {
-                const expirationDate = suggestion.expiration
-                  ? new Date(suggestion.expiration)
-                  : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    ? analysis.optionSuggestions
+      .filter((suggestion) => suggestion && suggestion.ticker)
+      .map((suggestion, index) => {
+        const expirationDate = suggestion.expiration
+          ? new Date(suggestion.expiration)
+          : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-                return {
-                  id: suggestion.id || `option-suggestion-${Date.now()}-${index}`,
-                  ticker: suggestion.ticker,
-                  strike: typeof suggestion.strike === 'number' ? suggestion.strike : 0,
-                  expiration: expirationDate,
-                  optionType: suggestion.optionType || 'call',
-                  reason: suggestion.reason || 'Based on option flow inferred from tweets and sentiment.',
-                  confidence:
-                    typeof suggestion.confidence === 'number'
-                      ? Math.min(100, Math.max(0, Math.round(suggestion.confidence)))
-                      : 50,
-                  premium:
-                    typeof suggestion.premiumEstimate === 'number'
-                      ? suggestion.premiumEstimate
-                      : typeof suggestion.premium === 'number'
-                      ? suggestion.premium
-                      : 0,
-                  targetPrice: suggestion.targetPrice,
-                  action: suggestion.action || 'buy',
-                  strategy: suggestion.strategy as OptionSuggestion['strategy'],
-                  timeframe: suggestion.timeframe,
-                  supportingTweetIds: suggestion.supportingTweetIds,
-                  premiumEstimate: suggestion.premiumEstimate,
-                };
-              })
-          : [];
+        return {
+          id: suggestion.id || `option-suggestion-${Date.now()}-${index}`,
+          ticker: suggestion.ticker,
+          strike: typeof suggestion.strike === 'number' ? suggestion.strike : 0,
+          expiration: expirationDate,
+          optionType: suggestion.optionType || 'call',
+          reason: suggestion.reason || 'Based on option flow inferred from tweets and sentiment.',
+          confidence:
+            typeof suggestion.confidence === 'number'
+              ? Math.min(100, Math.max(0, Math.round(suggestion.confidence)))
+              : 50,
+          premium:
+            typeof suggestion.premiumEstimate === 'number'
+              ? suggestion.premiumEstimate
+              : typeof suggestion.premium === 'number'
+                ? suggestion.premium
+                : 0,
+          targetPrice: suggestion.targetPrice,
+          action: suggestion.action || 'buy',
+          strategy: suggestion.strategy as OptionSuggestion['strategy'],
+          timeframe: suggestion.timeframe,
+          supportingTweetIds: suggestion.supportingTweetIds,
+          premiumEstimate: suggestion.premiumEstimate,
+        };
+      })
+    : [];
 
-        setOptionSuggestions(
-          normalizedOptionSuggestions.length > 0
-            ? normalizedOptionSuggestions
-            : mockOptionSuggestions.map((suggestion) => ({ ...suggestion }))
-        );
-      } catch (error: any) {
-        // Check if it's a resource exhaustion error
-        const isResourceError = error.message?.includes('ERR_INSUFFICIENT_RESOURCES') || 
-                                error.message?.includes('Failed to fetch') ||
-                                error.message?.includes('network');
-        
-        if (isResourceError) {
-          console.warn('[Market Sentiment] Resource exhaustion detected, will retry later');
-          // Don't update state on resource errors, just log
-          if (!isCancelled) {
-            // Extend the throttle time to prevent immediate retry
-            lastMarketAnalysisRef.current = Date.now() + 30000; // Wait 30 seconds before next attempt
-          }
-        }
-        if (!isCancelled) {
-          console.error('[Market Sentiment] Error running tweet-driven market analysis:', error);
-          
-          // Only update if we don't have existing valid sentiment data
-          // This prevents overwriting good data with error messages
-          if (!marketSentiment || 
-              marketSentiment.keyDrivers?.includes('Market analysis unavailable') ||
-              marketSentiment.summary?.includes('Market analysis unavailable')) {
-            // Fallback to defaults if analysis fails and we don't have valid data
-            setMarketInsights([]);
-            updateMarketSentiment({
-              bullish: 34,
-              bearish: 33,
-              neutral: 33,
-              overall: 'neutral' as const,
-              lastUpdated: new Date(),
-              keyDrivers: ['Analyzing market sentiment...'],
-              sourceAccounts: [],
-              summary: 'Calculating market sentiment from recent tweets. Please try again in a moment.',
-              topInsights: [],
-            });
-            setTradeSuggestions(mockPapertradeSuggestions.map((suggestion) => ({ ...suggestion })));
-            setOptionSuggestions(mockOptionSuggestions.map((suggestion) => ({ ...suggestion })));
-          } else {
-            // Keep existing valid data, just log the error
-            console.warn('[Market Sentiment] Keeping existing sentiment data due to API error');
-          }
-        }
-      } finally {
-        isAnalyzingMarketRef.current = false;
-      }
+  setOptionSuggestions(
+    normalizedOptionSuggestions.length > 0
+      ? normalizedOptionSuggestions
+      : mockOptionSuggestions.map((suggestion) => ({ ...suggestion }))
+  );
+} catch (error: any) {
+  // Check if it's a resource exhaustion error
+  const isResourceError = error.message?.includes('ERR_INSUFFICIENT_RESOURCES') ||
+    error.message?.includes('Failed to fetch') ||
+    error.message?.includes('network');
+
+  if (isResourceError) {
+    console.warn('[Market Sentiment] Resource exhaustion detected, will retry later');
+    // Don't update state on resource errors, just log
+    if (!isCancelled) {
+      // Extend the throttle time to prevent immediate retry
+      lastMarketAnalysisRef.current = Date.now() + 30000; // Wait 30 seconds before next attempt
+    }
+  }
+  if (!isCancelled) {
+    console.error('[Market Sentiment] Error running tweet-driven market analysis:', error);
+
+    // Only update if we don't have existing valid sentiment data
+    // This prevents overwriting good data with error messages
+    if (!marketSentiment ||
+      marketSentiment.keyDrivers?.includes('Market analysis unavailable') ||
+      marketSentiment.summary?.includes('Market analysis unavailable')) {
+      // Fallback to defaults if analysis fails and we don't have valid data
+      setMarketInsights([]);
+      updateMarketSentiment({
+        bullish: 34,
+        bearish: 33,
+        neutral: 33,
+        overall: 'neutral' as const,
+        lastUpdated: new Date(),
+        keyDrivers: ['Analyzing market sentiment...'],
+        sourceAccounts: [],
+        summary: 'Calculating market sentiment from recent tweets. Please try again in a moment.',
+        topInsights: [],
+      });
+      setOptionSuggestions(mockOptionSuggestions.map((suggestion) => ({ ...suggestion })));
+    } else {
+      // Keep existing valid data, just log the error
+      console.warn('[Market Sentiment] Keeping existing sentiment data due to API error');
+    }
+  }
+} finally {
+  isAnalyzingMarketRef.current = false;
+}
     };
 
-    // Initial run with slight delay to ensure tweets state is settled
-    const timeoutId = setTimeout(() => runMarketAnalysis('initial'), 3000);
+// Initial run with slight delay to ensure tweets state is settled
+const timeoutId = setTimeout(() => runMarketAnalysis('initial'), 3000);
 
-    // Re-run every 3 minutes to capture recent market-moving tweets
-    // More frequent updates since we're focusing on recent tweets (last 6 hours)
-    const intervalId = setInterval(() => runMarketAnalysis('interval'), 180000);
+// Re-run every 3 minutes to capture recent market-moving tweets
+// More frequent updates since we're focusing on recent tweets (last 6 hours)
+const intervalId = setInterval(() => runMarketAnalysis('interval'), 180000);
 
-    // Don't run on dependency change immediately - let the timeout handle it
-    // This prevents multiple simultaneous calls
+// Don't run on dependency change immediately - let the timeout handle it
+// This prevents multiple simultaneous calls
 
-    return () => {
-      isCancelled = true;
-      isAnalyzingMarketRef.current = false;
-      clearTimeout(timeoutId);
-      clearInterval(intervalId);
-    };
+return () => {
+  isCancelled = true;
+  isAnalyzingMarketRef.current = false;
+  clearTimeout(timeoutId);
+  clearInterval(intervalId);
+};
   }, [isAuthenticated, tweets.length, watchlist.length, positions.length, updateMarketSentiment]);
 
-  // Update stock prices periodically
-  React.useEffect(() => {
-    if (!isAuthenticated) return;
+// Update stock prices periodically
+React.useEffect(() => {
+  if (!isAuthenticated) return;
 
-    // Don't call immediately - wait a bit to avoid race conditions
-    const timeoutId = setTimeout(() => {
-      if (watchlist.length > 0 || positions.length > 0) {
-        updateStockPrices().catch((error) => {
-          console.error('Error in initial price update:', error);
-        });
-      }
-    }, 2000); // Increased delay to avoid race conditions
+  // Don't call immediately - wait a bit to avoid race conditions
+  const timeoutId = setTimeout(() => {
+    if (watchlist.length > 0 || positions.length > 0) {
+      updateStockPrices().catch((error) => {
+        console.error('Error in initial price update:', error);
+      });
+    }
+  }, 2000); // Increased delay to avoid race conditions
 
-    const interval = setInterval(() => {
-      if (watchlist.length > 0 || positions.length > 0) {
-        updateStockPrices().catch((error) => {
-          console.error('Error in periodic price update:', error);
-        });
-      }
-    }, 30000); // Update every 30 seconds to avoid rate limits
+  const interval = setInterval(() => {
+    if (watchlist.length > 0 || positions.length > 0) {
+      updateStockPrices().catch((error) => {
+        console.error('Error in periodic price update:', error);
+      });
+    }
+  }, 30000); // Update every 30 seconds to avoid rate limits
 
-    return () => {
-      clearTimeout(timeoutId);
-      clearInterval(interval);
-    };
-  }, [isAuthenticated, updateStockPrices, watchlist.length, positions.length]);
+  return () => {
+    clearTimeout(timeoutId);
+    clearInterval(interval);
+  };
+}, [isAuthenticated, updateStockPrices, watchlist.length, positions.length]);
 
-  // Fetch unusual flows from FL0WG0D account (all stocks, past 2 days)
-  // Now works even when not authenticated
-  React.useEffect(() => {
-    const fetchUnusualFlows = async () => {
+// Fetch unusual flows from FL0WG0D account (all stocks, past 2 days)
+// Now works even when not authenticated
+React.useEffect(() => {
+  const fetchUnusualFlows = async () => {
+    try {
+      console.log('[Unusual Flows] Fetching all flows from FL0WG0D (past 2 days)...');
+
+      // Calculate 2 days ago timestamp
+      const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000);
+
+      // Try to fetch from Twitter API - fetch more tweets to cover 2 days
       try {
-        console.log('[Unusual Flows] Fetching all flows from FL0WG0D (past 2 days)...');
-        
-        // Calculate 2 days ago timestamp
-        const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000);
-        
-        // Try to fetch from Twitter API - fetch more tweets to cover 2 days
-        try {
-          const { getTweetsFromTwitterAPI } = await import('../services/grokApi');
-          const result = await getTweetsFromTwitterAPI(['FL0WG0D'], 200); // Increased to 200 to cover 2 days
-          
-          if (result && result.success && Array.isArray(result.tweets) && result.tweets.length > 0) {
-            // Convert tweets with images to UnusualFlow format
-            const flows: UnusualFlow[] = result.tweets
+        const { getTweetsFromTwitterAPI } = await import('../services/grokApi');
+        const result = await getTweetsFromTwitterAPI(['FL0WG0D'], 200); // Increased to 200 to cover 2 days
+
+        if (result && result.success && Array.isArray(result.tweets) && result.tweets.length > 0) {
+          // Convert tweets with images to UnusualFlow format
+          const flows: UnusualFlow[] = result.tweets
+            .filter((tweet: any) => {
+              // Filter by timestamp - only include tweets from past 2 days
+              const tweetTime = tweet?.timestamp ? new Date(tweet.timestamp).getTime() : 0;
+              const isWithin2Days = tweetTime >= twoDaysAgo;
+
+              // Safe check for imageUrls - only include tweets with images
+              return tweet &&
+                isWithin2Days &&
+                Array.isArray(tweet.imageUrls) &&
+                tweet.imageUrls.length > 0 &&
+                tweet.imageUrls[0];
+            })
+            .map((tweet: any, index: number) => {
+              // Try to extract ticker from tweet content
+              const content = (tweet?.content || '').toUpperCase();
+              const tickerMatch = content.match(/\$([A-Z]{1,5}(?:-USD)?)/);
+              const ticker = tickerMatch ? tickerMatch[1] : 'UNKNOWN';
+
+              // Determine flow type from content
+              let flowType: 'call' | 'put' | 'volume' = 'volume';
+              if (content.includes('CALL') || content.includes('BUY') || content.includes('LONG') || content.includes('CALL BUYER')) {
+                flowType = 'call';
+              } else if (content.includes('PUT') || content.includes('SELL') || content.includes('SHORT') || content.includes('PUT BUYER')) {
+                flowType = 'put';
+              }
+
+              // Try to extract value from content (e.g., "$316K", "$750K")
+              let value = 0;
+              const valueMatch = content.match(/\$(\d+(?:\.\d+)?)([KM])?/);
+              if (valueMatch) {
+                const numValue = parseFloat(valueMatch[1]);
+                const multiplier = valueMatch[2] === 'M' ? 1000000 : valueMatch[2] === 'K' ? 1000 : 1;
+                value = numValue * multiplier;
+              }
+
+              // Safely get first image URL
+              const imageUrl = Array.isArray(tweet.imageUrls) && tweet.imageUrls.length > 0
+                ? tweet.imageUrls[0]
+                : null;
+
+              return {
+                id: `flow-${tweet?.id || Date.now()}-${index}`,
+                ticker,
+                type: flowType,
+                description: tweet?.content || 'Unusual options flow detected',
+                value,
+                timestamp: tweet?.timestamp ? new Date(tweet.timestamp) : new Date(),
+                imageUrl: imageUrl || undefined,
+                tweetId: tweet?.id,
+                tweetUrl: tweet?.id ? `https://x.com/FL0WG0D/status/${tweet.id}` : undefined,
+              };
+            })
+            .filter((flow: UnusualFlow) => {
+              // Only include flows with images and valid tickers
+              return flow.imageUrl && flow.ticker !== 'UNKNOWN';
+            })
+            // Sort by timestamp (most recent first)
+            .sort((a, b) => {
+              return b.timestamp.getTime() - a.timestamp.getTime();
+            });
+
+          console.log(`[Unusual Flows] Found ${flows.length} flows with images (all stocks, past 2 days)`);
+          if (flows.length > 0) {
+            setUnusualFlows(flows);
+            return;
+          }
+        }
+      } catch (twitterError) {
+        console.warn('[Unusual Flows] Twitter API error, trying alternative method:', twitterError);
+      }
+
+      // Fallback: Try using the backend API endpoint
+      try {
+        const response = await fetch('/api/twitter/users', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            usernames: ['FL0WG0D'],
+            maxResults: 200 // Increased to 200 to cover 2 days
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && Array.isArray(data.tweets) && data.tweets.length > 0) {
+            const flows: UnusualFlow[] = data.tweets
               .filter((tweet: any) => {
                 // Filter by timestamp - only include tweets from past 2 days
                 const tweetTime = tweet?.timestamp ? new Date(tweet.timestamp).getTime() : 0;
                 const isWithin2Days = tweetTime >= twoDaysAgo;
-                
-                // Safe check for imageUrls - only include tweets with images
-                return tweet && 
-                       isWithin2Days &&
-                       Array.isArray(tweet.imageUrls) && 
-                       tweet.imageUrls.length > 0 &&
-                       tweet.imageUrls[0];
+
+                return tweet &&
+                  isWithin2Days &&
+                  Array.isArray(tweet.imageUrls) &&
+                  tweet.imageUrls.length > 0 &&
+                  tweet.imageUrls[0];
               })
               .map((tweet: any, index: number) => {
-                // Try to extract ticker from tweet content
                 const content = (tweet?.content || '').toUpperCase();
                 const tickerMatch = content.match(/\$([A-Z]{1,5}(?:-USD)?)/);
                 const ticker = tickerMatch ? tickerMatch[1] : 'UNKNOWN';
-                
-                // Determine flow type from content
+
                 let flowType: 'call' | 'put' | 'volume' = 'volume';
-                if (content.includes('CALL') || content.includes('BUY') || content.includes('LONG') || content.includes('CALL BUYER')) {
+                if (content.includes('CALL') || content.includes('BUY') || content.includes('LONG')) {
                   flowType = 'call';
-                } else if (content.includes('PUT') || content.includes('SELL') || content.includes('SHORT') || content.includes('PUT BUYER')) {
+                } else if (content.includes('PUT') || content.includes('SELL') || content.includes('SHORT')) {
                   flowType = 'put';
                 }
-                
-                // Try to extract value from content (e.g., "$316K", "$750K")
+
                 let value = 0;
                 const valueMatch = content.match(/\$(\d+(?:\.\d+)?)([KM])?/);
                 if (valueMatch) {
@@ -1491,12 +1867,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   const multiplier = valueMatch[2] === 'M' ? 1000000 : valueMatch[2] === 'K' ? 1000 : 1;
                   value = numValue * multiplier;
                 }
-                
-                // Safely get first image URL
+
                 const imageUrl = Array.isArray(tweet.imageUrls) && tweet.imageUrls.length > 0
                   ? tweet.imageUrls[0]
                   : null;
-                
+
                 return {
                   id: `flow-${tweet?.id || Date.now()}-${index}`,
                   ticker,
@@ -1509,161 +1884,83 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   tweetUrl: tweet?.id ? `https://x.com/FL0WG0D/status/${tweet.id}` : undefined,
                 };
               })
-              .filter((flow: UnusualFlow) => {
-                // Only include flows with images and valid tickers
-                return flow.imageUrl && flow.ticker !== 'UNKNOWN';
-              })
-              // Sort by timestamp (most recent first)
-              .sort((a, b) => {
-                return b.timestamp.getTime() - a.timestamp.getTime();
-              });
-            
-            console.log(`[Unusual Flows] Found ${flows.length} flows with images (all stocks, past 2 days)`);
+              .filter((flow: UnusualFlow) => flow.imageUrl && flow.ticker !== 'UNKNOWN')
+              .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+            console.log(`[Unusual Flows] Found ${flows.length} flows via API endpoint`);
             if (flows.length > 0) {
               setUnusualFlows(flows);
               return;
             }
           }
-        } catch (twitterError) {
-          console.warn('[Unusual Flows] Twitter API error, trying alternative method:', twitterError);
         }
-
-        // Fallback: Try using the backend API endpoint
-        try {
-          const response = await fetch('/api/twitter/users', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              usernames: ['FL0WG0D'],
-              maxResults: 200 // Increased to 200 to cover 2 days
-            }),
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            if (data.success && Array.isArray(data.tweets) && data.tweets.length > 0) {
-              const flows: UnusualFlow[] = data.tweets
-                .filter((tweet: any) => {
-                  // Filter by timestamp - only include tweets from past 2 days
-                  const tweetTime = tweet?.timestamp ? new Date(tweet.timestamp).getTime() : 0;
-                  const isWithin2Days = tweetTime >= twoDaysAgo;
-                  
-                  return tweet && 
-                         isWithin2Days &&
-                         Array.isArray(tweet.imageUrls) && 
-                         tweet.imageUrls.length > 0 &&
-                         tweet.imageUrls[0];
-                })
-                .map((tweet: any, index: number) => {
-                  const content = (tweet?.content || '').toUpperCase();
-                  const tickerMatch = content.match(/\$([A-Z]{1,5}(?:-USD)?)/);
-                  const ticker = tickerMatch ? tickerMatch[1] : 'UNKNOWN';
-                  
-                  let flowType: 'call' | 'put' | 'volume' = 'volume';
-                  if (content.includes('CALL') || content.includes('BUY') || content.includes('LONG')) {
-                    flowType = 'call';
-                  } else if (content.includes('PUT') || content.includes('SELL') || content.includes('SHORT')) {
-                    flowType = 'put';
-                  }
-                  
-                  let value = 0;
-                  const valueMatch = content.match(/\$(\d+(?:\.\d+)?)([KM])?/);
-                  if (valueMatch) {
-                    const numValue = parseFloat(valueMatch[1]);
-                    const multiplier = valueMatch[2] === 'M' ? 1000000 : valueMatch[2] === 'K' ? 1000 : 1;
-                    value = numValue * multiplier;
-                  }
-                  
-                  const imageUrl = Array.isArray(tweet.imageUrls) && tweet.imageUrls.length > 0
-                    ? tweet.imageUrls[0]
-                    : null;
-                  
-                  return {
-                    id: `flow-${tweet?.id || Date.now()}-${index}`,
-                    ticker,
-                    type: flowType,
-                    description: tweet?.content || 'Unusual options flow detected',
-                    value,
-                    timestamp: tweet?.timestamp ? new Date(tweet.timestamp) : new Date(),
-                    imageUrl: imageUrl || undefined,
-                    tweetId: tweet?.id,
-                    tweetUrl: tweet?.id ? `https://x.com/FL0WG0D/status/${tweet.id}` : undefined,
-                  };
-                })
-                .filter((flow: UnusualFlow) => flow.imageUrl && flow.ticker !== 'UNKNOWN')
-                .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-              
-              console.log(`[Unusual Flows] Found ${flows.length} flows via API endpoint`);
-              if (flows.length > 0) {
-                setUnusualFlows(flows);
-                return;
-              }
-            }
-          }
-        } catch (apiError) {
-          console.warn('[Unusual Flows] API endpoint error:', apiError);
-        }
-
-        // If no flows found, set empty array
-        console.log('[Unusual Flows] No flows found, setting empty array');
-        setUnusualFlows([]);
-      } catch (error) {
-        console.error('[Unusual Flows] Error fetching flows:', error);
-        setUnusualFlows([]);
+      } catch (apiError) {
+        console.warn('[Unusual Flows] API endpoint error:', apiError);
       }
-    };
 
-    // Fetch initially and then every 5 minutes
-    fetchUnusualFlows();
-    const interval = setInterval(fetchUnusualFlows, 300000); // 5 minutes
-
-    return () => clearInterval(interval);
-  }, []); // Remove isAuthenticated dependency - fetch flows regardless of auth status
-
-  // Simple local authentication - check localStorage
-  useEffect(() => {
-    const isAuth = localStorage.getItem('isAuthenticated') === 'true';
-    const storedEmail = localStorage.getItem('authEmail');
-    if (isAuth && storedEmail) {
-      setAuthenticated(true);
-    } else {
-      setAuthenticated(false);
-      localStorage.removeItem('isAuthenticated');
-      localStorage.removeItem('authEmail');
+      // If no flows found, set empty array
+      console.log('[Unusual Flows] No flows found, setting empty array');
+      setUnusualFlows([]);
+    } catch (error) {
+      console.error('[Unusual Flows] Error fetching flows:', error);
+      setUnusualFlows([]);
     }
-    setUseDatabase(false); // No persistent database for auth
-  }, []);
+  };
 
-  return (
-    <AppContext.Provider
-      value={{
-        watchlist,
-        addToWatchlist,
-        removeFromWatchlist,
-        tweets,
-        addTweet,
-        sentiments,
-        updateSentiment,
-        marketSentiment,
-        updateMarketSentiment,
-        marketInsights,
-        tradeSuggestions,
-        optionSuggestions,
-        unusualFlows,
-        positions,
-        addPosition,
-        removePosition,
-        updateStockPrices,
-        isAuthenticated,
-        setAuthenticated,
-        useDatabase,
-        setUseDatabase,
-      }}
-    >
-      {children}
-    </AppContext.Provider>
-  );
+  // Fetch initially and then every 5 minutes
+  fetchUnusualFlows();
+  const interval = setInterval(fetchUnusualFlows, 300000); // 5 minutes
+
+  return () => clearInterval(interval);
+}, []); // Remove isAuthenticated dependency - fetch flows regardless of auth status
+
+// Simple local authentication - check localStorage
+useEffect(() => {
+  const isAuth = localStorage.getItem('isAuthenticated') === 'true';
+  const storedEmail = localStorage.getItem('authEmail');
+  if (isAuth && storedEmail) {
+    setAuthenticated(true);
+  } else {
+    setAuthenticated(false);
+    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('authEmail');
+  }
+  setUseDatabase(false); // No persistent database for auth
+}, []);
+
+return (
+  <AppContext.Provider
+    value={{
+      watchlist,
+      addToWatchlist,
+      removeFromWatchlist,
+      tweets,
+      addTweet,
+      sentiments,
+      updateSentiment,
+      marketSentiment,
+      updateMarketSentiment,
+      marketInsights,
+      optionSuggestions,
+      unusualFlows,
+      positions,
+      addPosition,
+      removePosition,
+      updateStockPrices,
+      isAuthenticated,
+      setAuthenticated,
+      useDatabase,
+      setUseDatabase,
+      paperCash,
+      paperPositions,
+      paperTrades,
+      executePaperTrade,
+      resetPapertrade,
+      updatePaperPositionPrices,
+    }}
+  >
+    {children}
+  </AppContext.Provider>
+);
 };
 

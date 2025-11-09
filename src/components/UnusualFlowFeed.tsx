@@ -2,8 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { UnusualFlow } from '../types';
 import { BullishIcon, BearishIcon } from './Icons';
-import { positionsApi } from '../services/userDataApi';
-import { cashBalanceApi, tradesApi } from '../services/papertradeApi';
 import './UnusualFlowFeed.css';
 
 interface FlowAnalysis {
@@ -16,7 +14,7 @@ interface FlowAnalysis {
 }
 
 const UnusualFlowFeed: React.FC = () => {
-  const { unusualFlows, isAuthenticated, useDatabase } = useApp();
+  const { unusualFlows, executePaperTrade } = useApp();
   const feedRef = useRef<HTMLDivElement>(null);
   const [selectedFlow, setSelectedFlow] = useState<UnusualFlow | null>(null);
   const [analysis, setAnalysis] = useState<FlowAnalysis | null>(null);
@@ -203,26 +201,18 @@ const UnusualFlowFeed: React.FC = () => {
     }
   };
 
-  // Handle buy/sell action - Execute option trade in Papertrade
   const handleTrade = async (action: 'buy' | 'sell') => {
     if (!selectedFlow || !analysis) return;
 
-    // Use defaults if fields are missing - allow trading with dummy data
-    // No validation errors - we'll use defaults
-
-    // Convert expiration date to YYYY-MM-DD format if needed
     let expirationDateStr = analysis.expirationDate;
     try {
-      // Try to parse and format the date
       const dateMatch = expirationDateStr.match(/(\d{1,2})\/(\d{1,2})/);
       if (dateMatch) {
-        // Format: MM/DD -> YYYY-MM-DD (assuming current year)
         const month = dateMatch[1].padStart(2, '0');
         const day = dateMatch[2].padStart(2, '0');
         const currentYear = new Date().getFullYear();
         expirationDateStr = `${currentYear}-${month}-${day}`;
       } else if (!expirationDateStr.includes('-')) {
-        // If it's not in YYYY-MM-DD format, try to parse it
         const parsedDate = new Date(expirationDateStr);
         if (!isNaN(parsedDate.getTime())) {
           expirationDateStr = parsedDate.toISOString().split('T')[0];
@@ -235,10 +225,9 @@ const UnusualFlowFeed: React.FC = () => {
     setIsExecutingTrade(true);
 
     try {
-      // Get current stock price for the ticker
       const ticker = analysis.ticker;
-      let stockPrice = 100; // Default dummy price
-      
+      let stockPrice = 100; // Default fallback price
+
       try {
         const response = await fetch(`/api/yahoo-finance?symbols=${ticker}`);
         if (response.ok) {
@@ -251,151 +240,40 @@ const UnusualFlowFeed: React.FC = () => {
         console.warn('[Flow Trade] Could not fetch stock price, using default');
       }
 
-      // Default quantity to 1 contract if not specified
       const quantity = 1;
-      // Use premium from analysis, or estimate based on stock price (typically 1-5% of stock price for options)
-      const price = analysis.premium || Math.max(0.50, stockPrice * 0.02); // Minimum $0.50, or 2% of stock price
-      const multiplier = 100; // Options are 100 shares per contract
+      const price = analysis.premium || Math.max(0.5, stockPrice * 0.02);
+      const multiplier = 100;
       const totalCost = price * quantity * multiplier;
 
-      // Execute the trade (both authenticated and guest mode)
-      // Use dummy/default values if not extracted from image
       const tradeType = 'option';
-      const optionType = (analysis.optionType || (flow.type === 'call' ? 'call' : flow.type === 'put' ? 'put' : 'call')).toUpperCase() as 'CALL' | 'PUT';
-      const strikePrice = analysis.strikePrice || Math.round(stockPrice * 0.95); // Default to 95% of current price
-      const expirationDate = expirationDateStr || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // Default to 7 days from now
-      
-      const optionDetails = {
-        optionType: optionType,
-        strikePrice: strikePrice,
-        expirationDate: expirationDate
-      };
+      const optionType = (analysis.optionType || (selectedFlow.type === 'call' ? 'call' : selectedFlow.type === 'put' ? 'put' : 'call')).toUpperCase() as 'CALL' | 'PUT';
+      const strikePrice = analysis.strikePrice || Math.round(stockPrice * 0.95);
+      const expirationDate = expirationDateStr || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      if (isAuthenticated && useDatabase) {
-        try {
-          const cashBalance = await cashBalanceApi.get();
-          
-          if (action === 'buy' && totalCost > cashBalance) {
-            alert(`Insufficient funds! You need $${totalCost.toFixed(2)} but only have $${cashBalance.toFixed(2)}.`);
-            setIsExecutingTrade(false);
-            return;
-          }
+      const result = await executePaperTrade({
+        ticker,
+        action,
+        assetType: tradeType,
+        quantity,
+        price,
+        optionDetails: {
+          optionType,
+          strikePrice,
+          expirationDate,
+        },
+      });
 
-          // Create trade record
-          await tradesApi.create({
-            ticker: ticker,
-            action: action.toUpperCase() as 'BUY' | 'SELL',
-            quantity: quantity,
-            price: price,
-            total: totalCost,
-            type: tradeType,
-            optionDetails
-          });
-
-          // Update position
-          if (action === 'buy') {
-            // Check if position exists
-            const dbPositions = await positionsApi.getAll();
-            const existingPosition = dbPositions.find(p => 
-              p.ticker === ticker && 
-              p.type === 'option' &&
-              p.optionDetails?.optionType === optionDetails.optionType &&
-              p.optionDetails?.strikePrice === optionDetails.strikePrice &&
-              p.optionDetails?.expirationDate === optionDetails.expirationDate
-            );
-
-            if (existingPosition) {
-              // Update existing position
-              await positionsApi.update(existingPosition.id!, {
-                quantity: existingPosition.quantity + quantity,
-                currentPrice: price
-              });
-            } else {
-              // Create new position
-              await positionsApi.add({
-                ticker: ticker,
-                quantity: quantity,
-                entryPrice: price,
-                currentPrice: price,
-                type: tradeType,
-                optionDetails
-              });
-            }
-
-            // Update cash balance
-            const newBalance = cashBalance - totalCost;
-            await cashBalanceApi.update(newBalance);
-          } else {
-            // SELL - Find and update/remove position
-            const dbPositions = await positionsApi.getAll();
-            const dbPosition = dbPositions.find(p => 
-              p.ticker === ticker && 
-              p.type === 'option' &&
-              p.optionDetails?.optionType === optionDetails.optionType &&
-              p.optionDetails?.strikePrice === optionDetails.strikePrice &&
-              p.optionDetails?.expirationDate === optionDetails.expirationDate
-            );
-
-            if (!dbPosition || dbPosition.quantity < quantity) {
-              alert(`Insufficient contracts to sell! You don't have enough ${ticker} ${optionDetails.optionType} options.`);
-              setIsExecutingTrade(false);
-              return;
-            }
-
-            if (dbPosition.quantity <= quantity) {
-              await positionsApi.remove(dbPosition.id!);
-            } else {
-              await positionsApi.update(dbPosition.id!, {
-                quantity: dbPosition.quantity - quantity,
-                currentPrice: price
-              });
-            }
-
-            // Update cash balance
-            const newBalance = cashBalance + totalCost;
-            await cashBalanceApi.update(newBalance);
-          }
-
-          // Trigger position refresh in Papertrade
-          window.dispatchEvent(new CustomEvent('refreshPapertradePositions'));
-          
-          alert(`✅ ${action.toUpperCase()} order executed successfully!\n${quantity} ${optionDetails.optionType} contract(s) of ${ticker} at $${price.toFixed(2)}/contract\nTotal: $${totalCost.toFixed(2)}`);
-          
-          // Navigate to Papertrade tab to see the position
-          window.dispatchEvent(new CustomEvent('switchToPapertrade'));
-        } catch (error: any) {
-          console.error('[Flow Trade] Error executing trade:', error);
-          alert(`Failed to execute trade: ${error.message || 'Unknown error'}`);
-        }
-      } else {
-        // Guest mode - send trade data to Papertrade via custom event
-        const tradeData = {
-          ticker,
-          action: action.toUpperCase() as 'BUY' | 'SELL',
-          quantity,
-          price,
-          total: totalCost,
-          assetType: 'Option' as const,
-          optionType: optionDetails.optionType,
-          strikePrice: optionDetails.strikePrice,
-          expirationDate: optionDetails.expirationDate,
-          currentPrice: stockPrice,
-          premium: price // Store premium separately
-        };
-
-        // Dispatch event to Papertrade to execute the trade
-        console.log('[Flow Trade] Dispatching executeFlowTrade event with data:', tradeData);
-        const event = new CustomEvent('executeFlowTrade', { detail: tradeData });
-        window.dispatchEvent(event);
-        
-        // Small delay to ensure event is processed before alert
-        setTimeout(() => {
-          alert(`✅ ${action.toUpperCase()} order executed successfully!\n${quantity} ${optionDetails.optionType} contract(s) of ${ticker}\nStrike: $${optionDetails.strikePrice.toFixed(2)}\nPremium: $${price.toFixed(2)}/contract\nTotal: $${totalCost.toFixed(2)}\n\nSwitching to Papertrade to view your position...`);
-          
-          // Navigate to Papertrade tab
-          window.dispatchEvent(new CustomEvent('switchToPapertrade'));
-        }, 200);
+      if (!result.success) {
+        alert(`Failed to execute trade: ${result.error || 'Unknown error'}`);
+        return;
       }
+
+      alert(
+        `✅ ${action.toUpperCase()} order executed successfully!\n${quantity} ${optionType} contract(s) of ${ticker} at $${price.toFixed(
+          2,
+        )}/contract\nTotal: $${totalCost.toFixed(2)}\n\nSwitching to Papertrade to view your position...`,
+      );
+      window.dispatchEvent(new CustomEvent('switchToPapertrade'));
     } catch (error: any) {
       console.error('[Flow Trade] Error:', error);
       alert(`Failed to execute trade: ${error.message || 'Unknown error'}`);
@@ -422,7 +300,6 @@ const UnusualFlowFeed: React.FC = () => {
             <p className="flow-feed-empty-hint">Fetching flow images from FL0WG0D (past 2 days)</p>
             <div className="flow-feed-debug-info">
               <p><strong>Status:</strong></p>
-              <p>Authenticated: {isAuthenticated ? '✅ Yes' : '❌ No (flows still load)'}</p>
               <p>Flows found: {flows.length}</p>
               <p style={{ marginTop: '12px', fontSize: '12px', opacity: 0.8 }}>
                 💡 Check browser console (F12) for detailed logs with [Unusual Flows] prefix.
