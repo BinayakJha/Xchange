@@ -119,6 +119,12 @@ const LandingPage: React.FC = () => {
 
   return (
     <div className="landing-page">
+      <div className="galaxy-background">
+        <div className="stars"></div>
+        <div className="stars2"></div>
+        <div className="stars3"></div>
+        <div className="nebula"></div>
+      </div>
       <div className="landing-container">
         {/* Left Section - Large X Logo */}
         <div className="landing-left">
