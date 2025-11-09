@@ -1,197 +1,344 @@
-# XFinance - Social Finance Platform
+# 🚀 XChange - AI-Powered Trading Platform
 
-A modern, real-time finance platform that combines stock/crypto trading, social media sentiment analysis, and AI-powered market insights. Built with React, TypeScript, and Grok AI.
+> **Where Market Chatter Becomes Market Insight**
 
-## 🚀 Quick Start Guide
+XChange is a cutting-edge financial trading platform that leverages **Grok AI** to transform social media sentiment into actionable trading intelligence. Built for the modern trader who wants to stay ahead of market movements by analyzing real-time social media data.
 
-This guide will help you set up and run XFinance on your laptop from scratch.
-
----
-
-## 📋 Prerequisites
-
-Before you begin, make sure you have the following installed:
-
-1. **Node.js** (version 18 or higher)
-
-   - Download from: https://nodejs.org/
-   - Verify installation: Open terminal/command prompt and run:
-     ```bash
-     node --version
-     npm --version
-     ```
-   - You should see version numbers (e.g., `v18.17.0` and `9.6.7`)
-
-2. **Git** (optional, if cloning from repository)
-
-   - Download from: https://git-scm.com/
-
-3. **Grok API Key** (required for AI features)
-   - Sign up at: https://x.ai/api
-   - Get your API key from the dashboard
+[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactjs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Grok AI](https://img.shields.io/badge/Grok_AI-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.ai/)
 
 ---
 
-## 📦 Installation Steps
-
-### Step 1: Get the Project
-
-If you have the project folder, navigate to it:
-
-```bash
-cd Xfinance
-```
-
-If you're cloning from a repository:
-
-```bash
-git clone <repository-url>
-cd Xfinance
-```
-
-### Step 2: Install Frontend Dependencies
-
-Open a terminal in the project root directory and run:
-
-```bash
-npm install
-```
-
-This will install all React and frontend dependencies. Wait for it to complete (may take 1-2 minutes).
-
-### Step 3: Install Backend Dependencies
-
-Open a **new terminal window** (keep the first one open) and navigate to the server folder:
-
-```bash
-cd server
-npm install
-```
-
-Wait for installation to complete.
-
-### Step 4: Set Up Environment Variables
-
-1. In the `server` folder, create a new file named `.env`:
-
-   - On Windows: Right-click → New → Text Document → Rename to `.env` (make sure to remove `.txt` extension)
-   - On Mac/Linux: In terminal, run: `touch .env`
-
-2. Open the `.env` file in a text editor and add:
-
-```env
-# Required: Grok AI API Key
-GROK_API_KEY=your_grok_api_key_here
-
-# Server Port (default: 3001)
-PORT=3001
-
-# Optional: Twitter/X API (if you want to use Twitter API instead of Grok for tweets)
-# TWITTER_BEARER_TOKEN=your_twitter_bearer_token_here
-```
-
-3. Replace `your_grok_api_key_here` with your actual Grok API key from https://x.ai/api
-
-**Important:**
-
-- Don't use quotes around the API key
-- Don't add spaces around the `=` sign
-- Keep this file secret - never commit it to Git!
-
----
-
-## 🏃 Running the Application
-
-You need to run **two servers** simultaneously: the frontend (React) and the backend (Express).
-
-### Option 1: Two Terminal Windows (Recommended)
-
-**Terminal 1 - Backend Server:**
-
-```bash
-cd server
-npm run dev
-```
-
-You should see:
-
-```
-Server running on http://localhost:3001
-```
-
-**Terminal 2 - Frontend Server:**
-
-```bash
-# Make sure you're in the root Xfinance directory (not in server/)
-npm run dev
-```
-
-You should see:
-
-```
-VITE v5.x.x  ready in xxx ms
-
-➜  Local:   http://localhost:5173/
-```
-
-### Option 2: Using a Terminal Manager (Advanced)
-
-If you have `tmux` or `screen`, you can run both in split panes.
-
----
-
-## 🌐 Accessing the Application
-
-Once both servers are running:
-
-1. Open your web browser
-2. Navigate to: **http://localhost:5173**
-3. You should see the XFinance landing page!
-
----
-
-## ✨ Features Overview
-
-### 📊 Stock & Crypto Trading
-
-- **Real-time prices** from Yahoo Finance (free, no API key needed)
-- **Paper trading** - practice trading with virtual money
-- **Stock search** - find any stock by ticker or company name
-- **Crypto support** - Bitcoin, Ethereum, and more
+## ✨ Features
 
 ### 🤖 AI Trading Assistant
 
-- Chat with AI to:
-  - Buy/sell stocks: "Buy $1000 worth of AAPL"
-  - Get sentiment: "What's the sentiment on TSLA?"
-  - View positions: "Show me my positions"
-  - **Sector heatmaps**: "Show me a heatmap of the technology sector"
-  - **Crypto heatmaps**: "Visualize the DeFi sector"
+- **Natural Language Trading**: Execute trades through conversational commands like "Buy $3,000 of AAPL" or "Invest $5k based on market sentiment"
+- **Market Sentiment Analysis**: Real-time sentiment scoring from social media with bullish/bearish/neutral percentages
+- **Automated Trade Execution**: AI analyzes market conditions and executes trades automatically
+- **Sector Heatmaps**: Visual representation of sector performance on demand (stocks & crypto)
 
-### 📱 Social Feed
+### 📊 Paper Trading
 
-- Real-time tweets from market influencers
-- Filtered to show only market-impactful content
-- Recent tweets (last 6 hours) prioritized
-- Sentiment analysis for each stock
+- **$100,000 Starting Balance**: Practice trading with virtual money
+- **Multi-Asset Support**: Trade stocks, crypto, and options seamlessly
+- **Real-Time Portfolio Tracking**: Live price updates and P&L calculations
+- **One-Click Selling**: Quick sell buttons directly from portfolio table
+- **Trade History**: Complete transaction log with timestamps
 
-### 📈 Market Sentiment
+### 📈 Unusual Options Flow
 
-- AI-powered sentiment analysis
-- Bullish/Bearish/Neutral percentages
-- Key market drivers
-- Top insights from recent tweets
+- **Real-Time Flow Detection**: Track unusual options activity from X/Twitter
+- **Image Analysis**: AI-powered OCR extracts tradeable data from screenshots
+- **Direct Trading**: Click-to-trade options directly from flow analysis
+- **2-Day Historical Data**: Comprehensive flow tracking from @FL0WG0D
+- **Detailed Analysis**: Strike prices, expiration dates, premiums, and volumes
+
+### 💰 Earnings Intelligence
+
+- **Automated Earnings Extraction**: Parse earnings data from @earnings_guy tweets
+- **Image Parsing**: Extract structured data from earnings charts and images using Grok AI
+- **Multi-Tweet Analysis**: Aggregate insights from multiple earnings posts
+- **Real-Time Updates**: Latest earnings reports as they're posted
+- **Structured Data**: EPS, revenue, surprise percentages automatically extracted
+
+### 📱 Social Media Integration
+
+- **X/Twitter Feed**: Curated market-moving tweets from influencers
+- **Impact Filtering**: AI filters for high-impact, market-relevant content
+- **Influencer Tracking**: Monitor key market movers (Elon Musk, Bloomberg, CNBC, etc.)
+- **Sentiment Scoring**: Real-time bullish/bearish/neutral analysis
+- **Recent Focus**: Prioritizes tweets from last 6 hours for actionable insights
+
+---
+
+## 🛠️ Tech Stack
+
+### Frontend
+
+- **React 18** with TypeScript for type-safe UI development
+- **Vite** for blazing-fast development and hot module replacement
+- **React Router** for seamless navigation
+- **CSS3** with custom design system and dark theme
+
+### Backend
+
+- **Node.js** with Express for RESTful API
+- **Grok AI API** for natural language processing and market analysis
+- **Twitter/X API** for social media data integration
+- **Tesseract.js** for OCR and image analysis
+- **SQL.js** for local database storage (zero-setup SQLite)
+
+### AI & ML
+
+- **Grok AI** (X's Generative AI) for:
+  - Market sentiment analysis
+  - Natural language trade parsing
+  - Earnings data extraction from images
+  - Content filtering and relevance scoring
+  - Sector heatmap generation
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- **Node.js 18+** and npm
+- **Grok API key** from [x.ai](https://x.ai/api)
+- (Optional) **Twitter/X API credentials** for enhanced tweet fetching
+
+### Installation
+
+1. **Clone the repository**
+
+```bash
+git clone https://github.com/yourusername/xchange.git
+cd xchange
+```
+
+2. **Install frontend dependencies**
+
+```bash
+npm install
+```
+
+3. **Install backend dependencies**
+
+```bash
+cd server
+npm install
+cd ..
+```
+
+4. **Set up environment variables**
+
+Create `server/.env`:
+
+```env
+# Required
+GROK_API_KEY=your_grok_api_key_here
+
+# Optional: Twitter/X API (Bearer Token preferred)
+TWITTER_BEARER_TOKEN=your_twitter_bearer_token_here
+
+# Optional: Twitter OAuth (alternative)
+TWITTER_CONSUMER_KEY=your_consumer_key
+TWITTER_CONSUMER_SECRET=your_consumer_secret
+TWITTER_ACCESS_TOKEN=your_access_token
+TWITTER_ACCESS_TOKEN_SECRET=your_access_token_secret
+
+# Server Configuration
+PORT=3001
+```
+
+5. **Start the development servers**
+
+**Terminal 1 (Backend):**
+
+```bash
+cd server
+npm run dev
+```
+
+**Terminal 2 (Frontend):**
+
+```bash
+npm run dev
+```
+
+6. **Open your browser**
+
+```
+http://localhost:5173
+```
+
+---
+
+## 📖 Usage Guide
+
+### AI Trading Assistant
+
+Simply chat with the AI to execute trades:
+
+```
+"Buy $3,000 of AAPL"
+"Invest $5k based on current market sentiment"
+"Show me a heatmap of the technology sector"
+"What's the sentiment on TSLA?"
+"Sell 10 shares of NVDA"
+```
+
+The AI will:
+
+- Parse your command
+- Analyze market conditions
+- Execute trades automatically
+- Provide trade confirmations
+
+### Paper Trading
+
+1. Navigate to the **Papertrade** tab
+2. Select asset type (Stock, Crypto, or Option)
+3. Enter ticker, quantity/amount, and price
+4. Use "Fetch Price" to get latest market price
+5. Click **Buy** or **Sell**
+6. Monitor your portfolio in real-time
+7. Click **Sell** button in portfolio table for quick exits
+
+### Unusual Flow Trading
+
+1. Go to **Unusual Flow** tab
+2. Browse recent options flow activity (last 2 days)
+3. Click on any flow to see detailed analysis
+4. Review strike price, expiration, and premium
+5. Click **Buy** or **Sell** to execute trades directly
+6. Trades appear in your portfolio automatically
+
+### Earnings Intelligence
+
+1. Earnings data is automatically extracted from @earnings_guy
+2. View latest earnings reports in the earnings section
+3. See EPS beats/misses, revenue figures, and surprise percentages
+4. Browse original tweets with earnings charts
+
+---
+
+## 🏗️ Project Structure
+
+```
+xchange/
+├── src/
+│   ├── components/              # React components
+│   │   ├── AIChat.tsx          # AI trading assistant
+│   │   ├── Papertrade.tsx      # Paper trading interface
+│   │   ├── UnusualFlowFeed.tsx # Options flow feed
+│   │   ├── EarningsSummary.tsx # Earnings display
+│   │   ├── SectorHeatmap.tsx   # Sector visualization
+│   │   └── ...
+│   ├── pages/                  # Page components
+│   │   ├── DashboardPage.tsx   # Main dashboard
+│   │   ├── LandingPage.tsx    # Landing/auth page
+│   │   └── ...
+│   ├── context/                # React context (state management)
+│   │   └── AppContext.tsx     # Global app state
+│   ├── services/               # API services
+│   │   ├── grokApi.ts         # Grok AI integration
+│   │   └── stockApi.ts        # Stock data
+│   └── types/                  # TypeScript definitions
+├── server/
+│   ├── services/               # Backend services
+│   │   ├── grokService.js      # Grok AI integration
+│   │   ├── chatService.js     # AI chat logic
+│   │   ├── twitterService.js  # Twitter API wrapper
+│   │   └── imageAnalysisService.js # OCR & image analysis
+│   ├── database/               # Database layer
+│   │   └── db.js              # SQL.js database
+│   └── server.js               # Express server
+├── package.json                # Frontend dependencies
+└── README.md                   # This file
+```
+
+---
+
+## 🔌 API Endpoints
+
+### Chat & AI
+
+- `POST /api/chat` - Chat with AI trading assistant
+- `POST /api/analyze` - Analyze single stock with sentiment
+- `POST /api/analyze/batch` - Analyze multiple stocks in parallel
+
+### Trading
+
+- `GET /api/positions` - Get user positions
+- `POST /api/positions` - Add/update position
+- `GET /api/trades` - Get trade history
+- `POST /api/trades` - Record trade
+- `GET /api/cash-balance` - Get cash balance
+- `PUT /api/cash-balance` - Update cash balance
+
+### Market Data
+
+- `GET /api/yahoo-finance` - Get stock/crypto quotes (multiple symbols)
+- `GET /api/yahoo/quote/:ticker` - Get single stock quote
+- `GET /api/yahoo/search` - Search for stocks
+- `GET /api/earnings/recent` - Get recent earnings from @earnings_guy
+
+### Social Media
+
+- `GET /api/twitter/users` - Get tweets from specific users
+- `POST /api/twitter/search` - Search tweets
+
+### Options Flow
+
+- `POST /api/flow/analyze-image` - Analyze options flow image with OCR
+
+---
+
+## 🎯 Key Features in Detail
+
+### AI-Powered Trade Execution
+
+The AI assistant can:
+
+- Parse natural language trade commands with high accuracy
+- Analyze market sentiment before executing trades
+- Diversify investments across multiple assets automatically
+- Execute trades based on user intent ("invest $5k wherever you think best")
+- Handle fractional quantities for crypto trades
+
+### Real-Time Sentiment Analysis
+
+- Processes thousands of tweets per minute
+- Filters for market-impactful content (earnings, policy changes, major news)
+- Scores sentiment (bullish/bearish/neutral) with percentages
+- Prioritizes recent, high-engagement posts (last 6 hours)
+- Tracks key market drivers and trending topics
+
+### Earnings Intelligence
+
+- Monitors @earnings_guy for latest earnings reports
+- Extracts structured data from tweet images using Grok AI
+- Parses EPS (actual vs estimate), revenue, surprise percentages
+- Aggregates multiple tweets per company for comprehensive view
+- Displays original tweets with earnings charts
+
+### Unusual Options Flow
+
+- Tracks @FL0WG0D for unusual options activity
+- Analyzes flow images with OCR + AI
+- Extracts ticker, strike, expiration, premium, volume
+- Enables one-click trading from flow analysis
+- Shows 2 days of historical flow data
 
 ---
 
 ## 🔧 Troubleshooting
 
-### Problem: "Cannot find module" errors
-
-**Solution:**
+### Port Already in Use
 
 ```bash
-# In root directory
+# Kill process on port 3001
+lsof -ti:3001 | xargs kill
+
+# Kill process on port 5173
+lsof -ti:5173 | xargs kill
+```
+
+### API Key Issues
+
+- Ensure `.env` file is in `server/` directory
+- No quotes around API key value
+- No spaces around `=` sign
+- Restart backend server after changes
+
+### Module Not Found
+
+```bash
+# Clean install
 rm -rf node_modules package-lock.json
 npm install
 
@@ -201,223 +348,106 @@ rm -rf node_modules package-lock.json
 npm install
 ```
 
-### Problem: Port 3001 already in use
+### Frontend Can't Connect to Backend
 
-**Solution:** Change the port in `server/.env`:
-
-```env
-PORT=3002
-```
-
-Then update `vite.config.ts` (if it exists) to proxy to the new port.
-
-### Problem: "GROK_API_KEY is not configured"
-
-**Solution:**
-
-1. Make sure you created `.env` file in the `server` folder
-2. Check that the file is named exactly `.env` (not `.env.txt`)
-3. Verify the API key is correct (no quotes, no spaces)
-4. Restart the backend server
-
-### Problem: Frontend can't connect to backend
-
-**Solution:**
-
-1. Make sure backend is running on port 3001
-2. Check `vite.config.ts` has correct proxy settings:
-   ```js
-   server: {
-     proxy: {
-       '/api': 'http://localhost:3001'
-     }
-   }
-   ```
-
-### Problem: "EADDRINUSE: address already in use"
-
-**Solution:** Another process is using the port. Find and kill it:
-
-```bash
-# On Mac/Linux
-lsof -ti:3001 | xargs kill
-lsof -ti:5173 | xargs kill
-
-# On Windows
-netstat -ano | findstr :3001
-taskkill /PID <PID_NUMBER> /F
-```
-
-### Problem: Tweets not showing
-
-**Solution:**
-
-- Make sure Grok API key is valid
-- Check browser console for errors
-- Verify backend server is running
-- Wait a few seconds - tweets load asynchronously
-
-### Problem: Stock prices not loading
-
-**Solution:**
-
-- Yahoo Finance API is free but may have rate limits
-- Wait a moment and refresh
-- Check internet connection
-- Prices update every 30 seconds automatically
+- Verify backend is running on port 3001
+- Check `vite.config.ts` proxy settings
+- Ensure CORS is enabled in backend
 
 ---
 
-## 📁 Project Structure
+## 🚨 Common Mistakes
 
-```
-Xfinance/
-├── src/                    # Frontend React code
-│   ├── components/         # UI components
-│   ├── context/            # State management
-│   ├── pages/              # Page components
-│   ├── services/           # API services
-│   └── types/              # TypeScript types
-├── server/                 # Backend Express server
-│   ├── services/           # Grok API services
-│   └── server.js           # Main server file
-├── package.json            # Frontend dependencies
-└── README.md              # This file
-```
+1. ❌ Running `npm install` in wrong directory
 
----
+   - Frontend: Root directory
+   - Backend: `server/` directory
 
-## 🛠️ Development Commands
-
-### Frontend (Root Directory)
-
-```bash
-npm run dev          # Start development server
-npm run build        # Build for production
-npm run preview      # Preview production build
-```
-
-### Backend (Server Directory)
-
-```bash
-cd server
-npm run dev          # Start with auto-reload
-npm start            # Start production server
-```
-
----
-
-## 🔑 API Keys & Services
-
-### Required
-
-- **Grok API Key**: Get from https://x.ai/api
-  - Used for: AI chat, sentiment analysis, tweet fetching
-
-### Free (No API Key Needed)
-
-- **Yahoo Finance**: Stock prices and quotes
-- **Binance WebSocket**: Real-time crypto prices
-
-### Optional
-
-- **Twitter/X API**: Alternative tweet source (not required - Grok handles tweets)
-
----
-
-## 🎯 What Works Without Backend
-
-The frontend will work partially without the backend:
-
-- ✅ Stock/crypto price viewing
-- ✅ Stock search
-- ✅ Watchlist management
-- ✅ Paper trading
-- ❌ AI chat assistant
-- ❌ Sentiment analysis
-- ❌ Tweet feed
-- ❌ Market insights
-
-**To get full functionality, you need the backend running with a valid Grok API key.**
-
----
-
-## 📝 Environment Variables Reference
-
-### Server `.env` File
-
-```env
-# REQUIRED
-GROK_API_KEY=your_key_here
-
-# OPTIONAL
-PORT=3001
-TWITTER_BEARER_TOKEN=your_token_here
-```
-
----
-
-## 🚨 Common Mistakes to Avoid
-
-1. ❌ **Running npm install in wrong directory**
-
-   - Frontend: Run in root `Xfinance/` folder
-   - Backend: Run in `Xfinance/server/` folder
-
-2. ❌ **Forgetting to start backend server**
+2. ❌ Forgetting to start backend server
 
    - Both servers must run simultaneously
 
-3. ❌ **Wrong API key format**
+3. ❌ Wrong API key format in `.env`
 
-   - Don't use quotes: `GROK_API_KEY="key"` ❌
    - Use: `GROK_API_KEY=key` ✅
+   - Not: `GROK_API_KEY="key"` ❌
 
-4. ❌ **`.env` file in wrong location**
+4. ❌ `.env` file in wrong location
 
-   - Must be in `server/.env`, not root folder
+   - Must be in `server/.env`
 
-5. ❌ **Using old Node.js version**
-   - Requires Node.js 18+ (check with `node --version`)
-
----
-
-## 💡 Tips
-
-- **Keep both terminals open** - you'll need to see logs from both servers
-- **Check terminal output** - errors usually show helpful messages
-- **Browser console** - Press F12 to see frontend errors
-- **API rate limits** - Grok API has rate limits, so don't spam requests
-- **First load** - May take 10-30 seconds to fetch initial data
+5. ❌ Using old Node.js version
+   - Requires Node.js 18+
 
 ---
 
-## 🆘 Getting Help
+## 📝 Environment Variables
 
-If you're stuck:
+### Required
 
-1. **Check the terminal output** - errors are usually shown there
-2. **Check browser console** (F12 → Console tab)
-3. **Verify all prerequisites** are installed correctly
-4. **Make sure both servers are running**
-5. **Check `.env` file** is set up correctly
+- `GROK_API_KEY` - Your Grok API key from [x.ai](https://x.ai/api)
+
+### Optional
+
+- `TWITTER_BEARER_TOKEN` - Twitter Bearer Token (recommended)
+- `TWITTER_CONSUMER_KEY` - Twitter OAuth Consumer Key
+- `TWITTER_CONSUMER_SECRET` - Twitter OAuth Consumer Secret
+- `TWITTER_ACCESS_TOKEN` - Twitter OAuth Access Token
+- `TWITTER_ACCESS_TOKEN_SECRET` - Twitter OAuth Access Token Secret
+- `PORT` - Server port (default: 3001)
+
+---
+
+## 🎨 Design Features
+
+- **Dark Theme**: Modern dark UI with X (Twitter) inspired design
+- **Responsive Layout**: Works on desktop, tablet, and mobile
+- **Real-Time Updates**: Live price updates and sentiment changes
+- **Smooth Animations**: Polished transitions and interactions
+- **Accessible**: Keyboard navigation and screen reader support
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ---
 
 ## 📄 License
 
-MIT License - feel free to use and modify!
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ---
 
-## 🎉 You're All Set!
+## 🙏 Acknowledgments
 
-Once both servers are running and you see the app in your browser, you can:
+- **Grok AI** by X (formerly Twitter) for powerful natural language processing
+- **Yahoo Finance** for free market data
+- **Twitter/X API** for social media integration
+- **@earnings_guy** and **@FL0WG0D** for valuable market insights
 
-1. **Add stocks to watchlist** - Search and add your favorite stocks
-2. **Try the AI assistant** - Ask it to buy stocks or show heatmaps
-3. **View market sentiment** - See real-time sentiment analysis
-4. **Paper trade** - Practice trading without real money
-5. **Explore sectors** - Ask for heatmaps of different sectors
+---
 
-Enjoy trading! 📈🚀
+## 📧 Contact & Support
+
+- **Project Link**: [https://github.com/yourusername/xchange](https://github.com/yourusername/xchange)
+- **Issues**: [GitHub Issues](https://github.com/yourusername/xchange/issues)
+
+---
+
+<div align="center">
+
+**Built with ❤️ using Grok AI**
+
+⭐ Star this repo if you find it helpful!
+
+**Where Market Chatter Becomes Market Insight** 🚀
+
+</div>
